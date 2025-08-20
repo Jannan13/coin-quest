@@ -1,0 +1,16 @@
+# This is a placeholder for the level 1 background video
+# In a real implementation, this would be a .mp4 video file
+# You can replace this with actual video files for each level
+# 
+# Recommended video specifications:
+# - Format: MP4 (H.264)
+# - Resolution: 1920x1080 or 1280x720
+# - Duration: 10-30 seconds (looping)
+# - File size: Under 10MB for good performance
+# - Content: Abstract patterns, gradients, or motivational themes
+#
+# For each level, create videos that represent progression:
+# Level 1-2: Calm, foundational themes (blues, greens)
+# Level 3-5: Building momentum (purples, golds)  
+# Level 6-8: Success themes (golds, oranges)
+# Level 9-10: Mastery themes (platinum, rainbow effects)
