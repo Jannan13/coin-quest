@@ -1,12 +1,18 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { serveStatic } from 'hono/cloudflare-workers'
+import { jwt, sign, verify } from 'hono/jwt'
 
 type Bindings = {
   DB: D1Database;
+  JWT_SECRET?: string;
 }
 
-const app = new Hono<{ Bindings: Bindings }>()
+type Variables = {
+  user?: any;
+}
+
+const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 // Enable CORS for API routes
 app.use('/api/*', cors())
@@ -14,14 +20,335 @@ app.use('/api/*', cors())
 // Serve static files
 app.use('/static/*', serveStatic({ root: './public' }))
 
+// JWT secret (in production, use environment variable)
+const JWT_SECRET = 'medieval-coin-quest-secret-key-change-in-production'
+
+// Middleware to check authentication for protected routes
+const authMiddleware = async (c: any, next: any) => {
+  const token = c.req.header('Authorization')?.replace('Bearer ', '') || 
+                c.req.cookie('auth_token');
+
+  if (!token) {
+    return c.json({ error: 'Authentication required' }, 401);
+  }
+
+  try {
+    const payload = await verify(token, JWT_SECRET);
+    const { env } = c;
+    
+    // Get user from database
+    const user = await env.DB.prepare(`
+      SELECT * FROM users WHERE id = ? AND subscription_status != 'cancelled'
+    `).bind(payload.sub).first();
+
+    if (!user) {
+      return c.json({ error: 'User not found or subscription inactive' }, 401);
+    }
+
+    // Check subscription status
+    if (user.subscription_status === 'trial' && new Date() > new Date(user.trial_end_date)) {
+      await env.DB.prepare(`
+        UPDATE users SET subscription_status = 'expired' WHERE id = ?
+      `).bind(user.id).run();
+      return c.json({ error: 'Trial expired. Please subscribe to continue.' }, 402);
+    }
+
+    c.set('user', user);
+    await next();
+  } catch (error) {
+    return c.json({ error: 'Invalid token' }, 401);
+  }
+}
+
+// Hash password utility
+async function hashPassword(password: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+// Verify password utility
+async function verifyPassword(password: string, hash: string): Promise<boolean> {
+  const hashedPassword = await hashPassword(password);
+  return hashedPassword === hash;
+}
+
 // ===============================
-// API ROUTES
+// AUTHENTICATION ROUTES
+// ===============================
+
+// Register new user
+app.post('/api/auth/register', async (c) => {
+  const { env } = c;
+  const { email, password, name, character_name } = await c.req.json();
+
+  if (!email || !password || !name) {
+    return c.json({ error: 'Email, password, and name are required' }, 400);
+  }
+
+  try {
+    // Check if user already exists
+    const existingUser = await env.DB.prepare(`
+      SELECT id FROM users WHERE email = ?
+    `).bind(email).first();
+
+    if (existingUser) {
+      return c.json({ error: 'User already exists with this email' }, 409);
+    }
+
+    // Hash password
+    const passwordHash = await hashPassword(password);
+
+    // Create user
+    const result = await env.DB.prepare(`
+      INSERT INTO users (
+        email, name, password_hash, character_class, character_title,
+        subscription_status, subscription_plan, trial_start_date, trial_end_date
+      ) VALUES (?, ?, ?, ?, ?, 'trial', 'trial', CURRENT_TIMESTAMP, datetime(CURRENT_TIMESTAMP, '+7 days'))
+    `).bind(email, name, passwordHash, 'Peasant', character_name || 'Coin Seeker').run();
+
+    // Create JWT token
+    const token = await sign({ sub: result.meta.last_row_id, email }, JWT_SECRET);
+
+    // Set cookie
+    c.header('Set-Cookie', `auth_token=${token}; HttpOnly; Secure; SameSite=Strict; Max-Age=${7 * 24 * 60 * 60}`);
+
+    return c.json({ 
+      success: true, 
+      token,
+      user: {
+        id: result.meta.last_row_id,
+        email,
+        name,
+        subscription_status: 'trial',
+        trial_days_left: 7
+      }
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    return c.json({ error: 'Registration failed' }, 500);
+  }
+});
+
+// Login user
+app.post('/api/auth/login', async (c) => {
+  const { env } = c;
+  const { email, password } = await c.req.json();
+
+  if (!email || !password) {
+    return c.json({ error: 'Email and password are required' }, 400);
+  }
+
+  try {
+    // Get user
+    const user = await env.DB.prepare(`
+      SELECT * FROM users WHERE email = ?
+    `).bind(email).first();
+
+    if (!user || !await verifyPassword(password, user.password_hash)) {
+      return c.json({ error: 'Invalid email or password' }, 401);
+    }
+
+    // Check trial/subscription status
+    let subscriptionStatus = user.subscription_status;
+    let trialDaysLeft = 0;
+
+    if (user.subscription_status === 'trial') {
+      const trialEnd = new Date(user.trial_end_date);
+      const now = new Date();
+      trialDaysLeft = Math.max(0, Math.ceil((trialEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+      
+      if (trialDaysLeft <= 0) {
+        subscriptionStatus = 'expired';
+        await env.DB.prepare(`
+          UPDATE users SET subscription_status = 'expired' WHERE id = ?
+        `).bind(user.id).run();
+      }
+    }
+
+    // Create JWT token
+    const token = await sign({ sub: user.id, email }, JWT_SECRET);
+
+    // Set cookie
+    c.header('Set-Cookie', `auth_token=${token}; HttpOnly; Secure; SameSite=Strict; Max-Age=${30 * 24 * 60 * 60}`);
+
+    return c.json({ 
+      success: true, 
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        character_name: user.character_title,
+        subscription_status: subscriptionStatus,
+        subscription_plan: user.subscription_plan,
+        trial_days_left: trialDaysLeft
+      }
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    return c.json({ error: 'Login failed' }, 500);
+  }
+});
+
+// Logout user
+app.post('/api/auth/logout', (c) => {
+  c.header('Set-Cookie', `auth_token=; HttpOnly; Secure; SameSite=Strict; Max-Age=0`);
+  return c.json({ success: true });
+});
+
+// Get current user
+app.get('/api/auth/me', authMiddleware, (c) => {
+  const user = c.get('user');
+  
+  let trialDaysLeft = 0;
+  if (user.subscription_status === 'trial') {
+    const trialEnd = new Date(user.trial_end_date);
+    const now = new Date();
+    trialDaysLeft = Math.max(0, Math.ceil((trialEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+  }
+
+  return c.json({
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    character_name: user.character_title,
+    subscription_status: user.subscription_status,
+    subscription_plan: user.subscription_plan,
+    trial_days_left: trialDaysLeft
+  });
+});
+
+// ===============================
+// SUBSCRIPTION ROUTES
+// ===============================
+
+// Get subscription plans
+app.get('/api/subscription/plans', async (c) => {
+  const { env } = c;
+  
+  try {
+    const plans = await env.DB.prepare(`
+      SELECT * FROM subscription_plans WHERE is_active = 1 ORDER BY price_monthly ASC
+    `).all();
+
+    return c.json(plans.results);
+  } catch (error) {
+    console.error('Error fetching subscription plans:', error);
+    return c.json({ error: 'Failed to fetch plans' }, 500);
+  }
+});
+
+// Subscribe to plan (mock implementation - integrate with Stripe/PayPal in production)
+app.post('/api/subscription/subscribe', authMiddleware, async (c) => {
+  const { env } = c;
+  const user = c.get('user');
+  const { plan_id, billing_cycle = 'monthly' } = await c.req.json();
+
+  try {
+    // Get plan details
+    const plan = await env.DB.prepare(`
+      SELECT * FROM subscription_plans WHERE id = ?
+    `).bind(plan_id).first();
+
+    if (!plan) {
+      return c.json({ error: 'Plan not found' }, 404);
+    }
+
+    const amount = billing_cycle === 'yearly' ? plan.price_yearly : plan.price_monthly;
+    const startDate = new Date();
+    const endDate = new Date();
+    
+    if (billing_cycle === 'yearly') {
+      endDate.setFullYear(endDate.getFullYear() + 1);
+    } else {
+      endDate.setMonth(endDate.getMonth() + 1);
+    }
+
+    // In production, integrate with payment processor here
+    // For demo, we'll simulate successful payment
+
+    // Update user subscription
+    await env.DB.prepare(`
+      UPDATE users SET 
+        subscription_status = 'active',
+        subscription_plan = ?,
+        subscription_start_date = ?,
+        subscription_end_date = ?
+      WHERE id = ?
+    `).bind(plan.name, startDate.toISOString(), endDate.toISOString(), user.id).run();
+
+    // Record subscription history
+    const subscriptionResult = await env.DB.prepare(`
+      INSERT INTO subscription_history (
+        user_id, plan_id, status, amount, billing_cycle, starts_at, ends_at
+      ) VALUES (?, ?, 'active', ?, ?, ?, ?)
+    `).bind(user.id, plan_id, amount, billing_cycle, startDate.toISOString(), endDate.toISOString()).run();
+
+    // Record payment transaction
+    await env.DB.prepare(`
+      INSERT INTO payment_transactions (
+        user_id, subscription_history_id, amount, status, payment_provider, description
+      ) VALUES (?, ?, ?, 'completed', 'demo', ?)
+    `).bind(user.id, subscriptionResult.meta.last_row_id, amount, `${plan.display_name} - ${billing_cycle}`).run();
+
+    return c.json({ 
+      success: true, 
+      message: 'Subscription activated successfully!',
+      plan: plan.display_name,
+      next_billing_date: endDate.toISOString()
+    });
+  } catch (error) {
+    console.error('Subscription error:', error);
+    return c.json({ error: 'Subscription failed' }, 500);
+  }
+});
+
+// Get user's subscription status
+app.get('/api/subscription/status', authMiddleware, async (c) => {
+  const { env } = c;
+  const user = c.get('user');
+
+  try {
+    const subscription = await env.DB.prepare(`
+      SELECT sh.*, sp.display_name, sp.features 
+      FROM subscription_history sh
+      JOIN subscription_plans sp ON sh.plan_id = sp.id
+      WHERE sh.user_id = ? AND sh.status = 'active'
+      ORDER BY sh.created_at DESC
+      LIMIT 1
+    `).bind(user.id).first();
+
+    return c.json({
+      subscription_status: user.subscription_status,
+      subscription_plan: user.subscription_plan,
+      trial_end_date: user.trial_end_date,
+      subscription_end_date: user.subscription_end_date,
+      current_subscription: subscription
+    });
+  } catch (error) {
+    console.error('Error fetching subscription status:', error);
+    return c.json({ error: 'Failed to fetch subscription status' }, 500);
+  }
+});
+
+// ===============================
+// PROTECTED API ROUTES
 // ===============================
 
 // Get user profile and stats
-app.get('/api/user/:id', async (c) => {
+app.get('/api/user/:id', authMiddleware, async (c) => {
   const { env } = c;
-  const userId = c.req.param('id');
+  const currentUser = c.get('user');
+  const requestedUserId = c.req.param('id');
+
+  // Users can only access their own data
+  if (currentUser.id.toString() !== requestedUserId) {
+    return c.json({ error: 'Access denied' }, 403);
+  }
 
   try {
     const user = await env.DB.prepare(`
@@ -34,11 +361,16 @@ app.get('/api/user/:id', async (c) => {
       LEFT JOIN level_milestones lm ON u.current_level = lm.level
       WHERE u.id = ?
       GROUP BY u.id
-    `).bind(userId).first();
+    `).bind(requestedUserId).first();
 
     if (!user) {
       return c.json({ error: 'User not found' }, 404);
     }
+
+    // Don't return sensitive information
+    delete user.password_hash;
+    delete user.verification_token;
+    delete user.reset_token;
 
     return c.json(user);
   } catch (error) {
@@ -48,7 +380,7 @@ app.get('/api/user/:id', async (c) => {
 });
 
 // Get dashboard data
-app.get('/api/dashboard/:userId', async (c) => {
+app.get('/api/dashboard/:userId', authMiddleware, async (c) => {
   const { env } = c;
   const userId = c.req.param('userId');
 
@@ -101,7 +433,7 @@ app.get('/api/dashboard/:userId', async (c) => {
 });
 
 // Add new budget entry
-app.post('/api/budget-entry', async (c) => {
+app.post('/api/budget-entry', authMiddleware, async (c) => {
   const { env } = c;
   const { user_id, category_id, amount, description, entry_date, type } = await c.req.json();
 
@@ -160,7 +492,7 @@ app.get('/api/categories', async (c) => {
 });
 
 // Get achievements
-app.get('/api/achievements/:userId', async (c) => {
+app.get('/api/achievements/:userId', authMiddleware, async (c) => {
   const { env } = c;
   const userId = c.req.param('userId');
 
@@ -181,7 +513,7 @@ app.get('/api/achievements/:userId', async (c) => {
 });
 
 // Get character rewards for user
-app.get('/api/character-rewards/:userId', async (c) => {
+app.get('/api/character-rewards/:userId', authMiddleware, async (c) => {
   const { env } = c;
   const userId = c.req.param('userId');
 
@@ -203,7 +535,7 @@ app.get('/api/character-rewards/:userId', async (c) => {
 });
 
 // Equip character reward
-app.post('/api/equip-reward', async (c) => {
+app.post('/api/equip-reward', authMiddleware, async (c) => {
   const { env } = c;
   const { user_id, reward_id } = await c.req.json();
 
@@ -258,7 +590,7 @@ app.post('/api/equip-reward', async (c) => {
 });
 
 // Check and unlock new rewards
-app.post('/api/check-rewards', async (c) => {
+app.post('/api/check-rewards', authMiddleware, async (c) => {
   const { env } = c;
   const { user_id } = await c.req.json();
 
@@ -297,7 +629,7 @@ app.post('/api/check-rewards', async (c) => {
 });
 
 // Pay debt
-app.post('/api/pay-debt', async (c) => {
+app.post('/api/pay-debt', authMiddleware, async (c) => {
   const { env } = c;
   const { user_id, debt_id, amount } = await c.req.json();
 
@@ -338,9 +670,253 @@ app.post('/api/pay-debt', async (c) => {
 });
 
 // ===============================
-// MAIN APP ROUTE
+// MAIN APP ROUTES
 // ===============================
+
+// Public landing page with login/signup
 app.get('/', (c) => {
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Coin Quest RPG - Medieval Budget Adventure</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+        <style>
+          @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=MedievalSharp&display=swap');
+          
+          body {
+            font-family: 'Cinzel', serif;
+          }
+          
+          .medieval-title {
+            font-family: 'MedievalSharp', cursive;
+          }
+          
+          .medieval-background {
+            background: linear-gradient(45deg, 
+              rgba(139, 69, 19, 0.9) 0%,
+              rgba(101, 67, 33, 0.9) 25%,
+              rgba(160, 82, 45, 0.9) 50%,
+              rgba(139, 69, 19, 0.9) 75%,
+              rgba(101, 67, 33, 0.9) 100%);
+            background-size: 400% 400%;
+            animation: medievalGlow 20s ease infinite;
+          }
+          
+          @keyframes medievalGlow {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+          }
+          
+          .glass {
+            background: rgba(139, 69, 19, 0.15);
+            backdrop-filter: blur(12px);
+            border: 2px solid rgba(218, 165, 32, 0.3);
+            box-shadow: 
+              inset 0 1px 0 rgba(218, 165, 32, 0.2),
+              0 8px 32px rgba(0, 0, 0, 0.4);
+          }
+          
+          .gold-text {
+            color: #DAA520;
+            text-shadow: 0 0 10px rgba(218, 165, 32, 0.5);
+          }
+          
+          .medieval-btn {
+            background: linear-gradient(145deg, #8B4513, #654321);
+            border: 2px solid #DAA520;
+            color: #FFD700;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+            box-shadow: 
+              inset 0 1px 0 rgba(218, 165, 32, 0.2),
+              0 4px 15px rgba(0, 0, 0, 0.4);
+            transition: all 0.3s ease;
+          }
+          
+          .medieval-btn:hover {
+            background: linear-gradient(145deg, #A0522D, #8B4513);
+            transform: translateY(-2px);
+          }
+        </style>
+    </head>
+    <body class="medieval-background min-h-screen text-yellow-100">
+        <!-- Landing Page -->
+        <div class="min-h-screen flex items-center justify-center p-4">
+          <div class="max-w-4xl w-full">
+            <!-- Header -->
+            <div class="text-center mb-12">
+              <h1 class="medieval-title text-6xl md:text-8xl font-bold gold-text mb-4">
+                ⚔️ Coin Quest RPG
+              </h1>
+              <p class="text-2xl md:text-3xl text-yellow-200 mb-6">
+                Medieval Budget Adventure
+              </p>
+              <p class="text-lg text-yellow-300 max-w-2xl mx-auto">
+                Transform your financial journey into an epic medieval RPG! Level up by saving gold, 
+                slay debt dragons, and customize your character as you master the ancient arts of budgeting.
+              </p>
+            </div>
+
+            <!-- Features Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+              <div class="glass rounded-lg p-6 text-center">
+                <div class="text-4xl mb-4">🏰</div>
+                <h3 class="medieval-title text-xl font-bold gold-text mb-2">Epic Character System</h3>
+                <p class="text-yellow-300 text-sm">Customize your character with 32+ equipment items from Peasant to Elder Master</p>
+              </div>
+              
+              <div class="glass rounded-lg p-6 text-center">
+                <div class="text-4xl mb-4">🐉</div>
+                <h3 class="medieval-title text-xl font-bold gold-text mb-2">Debt Dragon Slaying</h3>
+                <p class="text-yellow-300 text-sm">Transform debts into fearsome dragons and earn legendary equipment by defeating them</p>
+              </div>
+              
+              <div class="glass rounded-lg p-6 text-center">
+                <div class="text-4xl mb-4">👑</div>
+                <h3 class="medieval-title text-xl font-bold gold-text mb-2">Level Progression</h3>
+                <p class="text-yellow-300 text-sm">Progress from Peasant Coin-Counter to Elder Scrolls Master of Gold</p>
+              </div>
+            </div>
+
+            <!-- Subscription Plans -->
+            <div class="glass rounded-lg p-8 mb-8">
+              <h2 class="medieval-title text-3xl font-bold gold-text text-center mb-8">Choose Your Adventure</h2>
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- Free Trial -->
+                <div class="bg-gray-800/50 rounded-lg p-6 border-2 border-gray-600">
+                  <div class="text-center">
+                    <h3 class="medieval-title text-xl font-bold text-green-400 mb-2">🆓 Free Trial</h3>
+                    <div class="text-3xl font-bold text-white mb-2">$0</div>
+                    <div class="text-sm text-gray-400 mb-4">7 days free</div>
+                    <ul class="text-sm text-gray-300 space-y-2 mb-6">
+                      <li>✓ Basic character customization</li>
+                      <li>✓ Up to 3 debt dragons</li>
+                      <li>✓ Basic equipment tiers</li>
+                      <li>✓ Standard achievements</li>
+                    </ul>
+                  </div>
+                </div>
+
+                <!-- Adventurer Plan -->
+                <div class="bg-blue-800/50 rounded-lg p-6 border-2 border-blue-400 transform scale-105">
+                  <div class="text-center">
+                    <div class="bg-blue-500 text-white px-3 py-1 rounded-full text-xs font-bold mb-2">MOST POPULAR</div>
+                    <h3 class="medieval-title text-xl font-bold text-blue-400 mb-2">⚔️ Adventurer Plan</h3>
+                    <div class="text-3xl font-bold text-white mb-2">$9.99</div>
+                    <div class="text-sm text-gray-400 mb-4">per month</div>
+                    <ul class="text-sm text-gray-300 space-y-2 mb-6">
+                      <li>✓ Full character customization</li>
+                      <li>✓ Unlimited debt dragons</li>
+                      <li>✓ All equipment tiers</li>
+                      <li>✓ All achievements</li>
+                      <li>✓ Monthly progress reports</li>
+                    </ul>
+                  </div>
+                </div>
+
+                <!-- Noble Plan -->
+                <div class="bg-purple-800/50 rounded-lg p-6 border-2 border-purple-400">
+                  <div class="text-center">
+                    <h3 class="medieval-title text-xl font-bold text-purple-400 mb-2">👑 Noble Plan</h3>
+                    <div class="text-3xl font-bold text-white mb-2">$19.99</div>
+                    <div class="text-sm text-gray-400 mb-4">per month</div>
+                    <ul class="text-sm text-gray-300 space-y-2 mb-6">
+                      <li>✓ Everything in Adventurer</li>
+                      <li>✓ Advanced analytics</li>
+                      <li>✓ Goal tracking</li>
+                      <li>✓ Custom categories</li>
+                      <li>✓ Priority support</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Auth Buttons -->
+            <div class="text-center space-y-4">
+              <button onclick="showSignupModal()" class="medieval-btn px-8 py-4 rounded-lg text-lg font-bold mr-4">
+                🏰 Start Your Quest (Free Trial)
+              </button>
+              <button onclick="showLoginModal()" class="bg-transparent border-2 border-yellow-600 text-yellow-400 px-8 py-4 rounded-lg text-lg font-bold hover:bg-yellow-600 hover:text-black transition-all">
+                ⚔️ Continue Quest (Login)
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Login Modal -->
+        <div id="loginModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/80">
+          <div class="glass rounded-lg p-8 w-full max-w-md mx-4">
+            <h2 class="medieval-title text-2xl font-bold gold-text text-center mb-6">Continue Your Quest</h2>
+            <form id="loginForm" class="space-y-4">
+              <div>
+                <label class="block text-yellow-300 font-medium mb-2">Email</label>
+                <input type="email" name="email" required 
+                       class="w-full p-3 bg-gray-800 border border-yellow-600 rounded text-white focus:border-yellow-400 focus:outline-none">
+              </div>
+              <div>
+                <label class="block text-yellow-300 font-medium mb-2">Password</label>
+                <input type="password" name="password" required 
+                       class="w-full p-3 bg-gray-800 border border-yellow-600 rounded text-white focus:border-yellow-400 focus:outline-none">
+              </div>
+              <button type="submit" class="w-full medieval-btn py-3 rounded font-bold">
+                Enter the Realm
+              </button>
+              <div class="text-center">
+                <button type="button" onclick="closeModal('loginModal')" class="text-yellow-400 hover:text-yellow-300">Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Signup Modal -->
+        <div id="signupModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/80">
+          <div class="glass rounded-lg p-8 w-full max-w-md mx-4">
+            <h2 class="medieval-title text-2xl font-bold gold-text text-center mb-6">Begin Your Quest</h2>
+            <form id="signupForm" class="space-y-4">
+              <div>
+                <label class="block text-yellow-300 font-medium mb-2">Your Name</label>
+                <input type="text" name="name" required 
+                       class="w-full p-3 bg-gray-800 border border-yellow-600 rounded text-white focus:border-yellow-400 focus:outline-none">
+              </div>
+              <div>
+                <label class="block text-yellow-300 font-medium mb-2">Character Title</label>
+                <input type="text" name="character_name" placeholder="e.g., Brave Coin Seeker" 
+                       class="w-full p-3 bg-gray-800 border border-yellow-600 rounded text-white focus:border-yellow-400 focus:outline-none">
+              </div>
+              <div>
+                <label class="block text-yellow-300 font-medium mb-2">Email</label>
+                <input type="email" name="email" required 
+                       class="w-full p-3 bg-gray-800 border border-yellow-600 rounded text-white focus:border-yellow-400 focus:outline-none">
+              </div>
+              <div>
+                <label class="block text-yellow-300 font-medium mb-2">Password</label>
+                <input type="password" name="password" required minlength="6"
+                       class="w-full p-3 bg-gray-800 border border-yellow-600 rounded text-white focus:border-yellow-400 focus:outline-none">
+              </div>
+              <button type="submit" class="w-full medieval-btn py-3 rounded font-bold">
+                🆓 Start Free Trial (7 Days)
+              </button>
+              <div class="text-center">
+                <button type="button" onclick="closeModal('signupModal')" class="text-yellow-400 hover:text-yellow-300">Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+        <script src="/static/auth.js"></script>
+    </body>
+    </html>
+  `)
+})
+
+// Main app route (protected)
+app.get('/app', (c) => {
   return c.html(`
     <!DOCTYPE html>
     <html lang="en">
@@ -594,6 +1170,11 @@ app.get('/', (c) => {
                   <div class="text-center">
                     <div class="text-lg font-bold text-green-400" id="goldCount">0 🪙</div>
                     <div class="text-xs text-yellow-400">Gold Saved</div>
+                  </div>
+                  <div class="text-center">
+                    <button onclick="app.showAccountModal()" class="medieval-btn px-3 py-1 text-sm rounded transition-all hover:scale-105">
+                      <i class="fas fa-user mr-1"></i>Account
+                    </button>
                   </div>
                 </div>
               </div>

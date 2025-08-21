@@ -1,7 +1,8 @@
 // Coin Quest RPG - Medieval Budget Adventure
 class CoinQuestRPG {
   constructor() {
-    this.currentUser = { id: 1, name: 'Demo User' }; // Demo user
+    this.currentUser = null;
+    this.authToken = null;
     this.currentTab = 'dashboard';
     this.categories = [];
     this.debts = [];
@@ -14,6 +15,12 @@ class CoinQuestRPG {
 
   async init() {
     try {
+      // Check authentication first
+      if (!this.checkAuthentication()) {
+        this.redirectToLogin();
+        return;
+      }
+
       // Initialize database
       await this.initializeDatabase();
       
@@ -26,6 +33,9 @@ class CoinQuestRPG {
         this.loadAchievements(),
         this.loadCharacterRewards()
       ]);
+      
+      // Check subscription status
+      await this.checkSubscriptionStatus();
       
       // Set up event listeners
       this.setupEventListeners();
@@ -40,8 +50,82 @@ class CoinQuestRPG {
       console.log('🏰 Coin Quest RPG initialized successfully');
     } catch (error) {
       console.error('Error initializing app:', error);
-      this.showError('Failed to initialize your medieval adventure. Please refresh the page.');
+      if (error.response?.status === 401 || error.response?.status === 402) {
+        this.redirectToLogin();
+      } else {
+        this.showError('Failed to initialize your medieval adventure. Please refresh the page.');
+      }
     }
+  }
+
+  checkAuthentication() {
+    // Get auth token from localStorage or cookie
+    this.authToken = localStorage.getItem('auth_token');
+    const userData = localStorage.getItem('user_data');
+    
+    if (!this.authToken || !userData) {
+      return false;
+    }
+
+    try {
+      this.currentUser = JSON.parse(userData);
+      return true;
+    } catch (error) {
+      console.error('Invalid user data in localStorage');
+      return false;
+    }
+  }
+
+  redirectToLogin() {
+    // Clear any stored auth data
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('user_data');
+    
+    // Redirect to login page
+    window.location.href = '/';
+  }
+
+  async checkSubscriptionStatus() {
+    try {
+      const response = await this.makeAuthenticatedRequest('/api/subscription/status');
+      
+      if (response.data.subscription_status === 'expired' || 
+          response.data.subscription_status === 'cancelled') {
+        this.showSubscriptionExpiredModal();
+      } else if (response.data.subscription_status === 'trial') {
+        // Show trial status in header
+        this.updateTrialStatus(response.data);
+      }
+    } catch (error) {
+      console.error('Error checking subscription status:', error);
+    }
+  }
+
+  async makeAuthenticatedRequest(url, options = {}) {
+    const headers = {
+      'Authorization': `Bearer ${this.authToken}`,
+      'Content-Type': 'application/json',
+      ...options.headers
+    };
+
+    return await axios({
+      url,
+      headers,
+      ...options
+    });
+  }
+
+  logout() {
+    // Clear local storage
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('user_data');
+    
+    // Call logout endpoint
+    this.makeAuthenticatedRequest('/api/auth/logout', { method: 'POST' })
+      .catch(console.error);
+    
+    // Redirect to login
+    window.location.href = '/';
   }
 
   async initializeDatabase() {
@@ -54,19 +138,22 @@ class CoinQuestRPG {
 
   async loadUserStats() {
     try {
-      const response = await axios.get(`/api/user/${this.currentUser.id}`);
+      const response = await this.makeAuthenticatedRequest(`/api/user/${this.currentUser.id}`);
       this.userStats = response.data;
       this.updateUserDisplay();
       this.updateVideoBackground();
       await this.checkForNewRewards();
     } catch (error) {
       console.error('Error loading user stats:', error);
+      if (error.response?.status === 401) {
+        this.redirectToLogin();
+      }
     }
   }
 
   async loadCategories() {
     try {
-      const response = await axios.get('/api/categories');
+      const response = await this.makeAuthenticatedRequest('/api/categories');
       this.categories = response.data;
     } catch (error) {
       console.error('Error loading categories:', error);
@@ -75,7 +162,7 @@ class CoinQuestRPG {
 
   async loadDashboardData() {
     try {
-      const response = await axios.get(`/api/dashboard/${this.currentUser.id}`);
+      const response = await this.makeAuthenticatedRequest(`/api/dashboard/${this.currentUser.id}`);
       const data = response.data;
       
       this.updateMonthlyStats(data.monthlyStats || []);
@@ -87,7 +174,7 @@ class CoinQuestRPG {
 
   async loadDebts() {
     try {
-      const response = await axios.get(`/api/dashboard/${this.currentUser.id}`);
+      const response = await this.makeAuthenticatedRequest(`/api/dashboard/${this.currentUser.id}`);
       this.debts = response.data.debts || [];
       this.updateDebtsDisplay();
       this.updateDebtSelect();
@@ -98,7 +185,7 @@ class CoinQuestRPG {
 
   async loadAchievements() {
     try {
-      const response = await axios.get(`/api/achievements/${this.currentUser.id}`);
+      const response = await this.makeAuthenticatedRequest(`/api/achievements/${this.currentUser.id}`);
       this.achievements = response.data;
       this.updateAchievementsDisplay();
     } catch (error) {
@@ -108,7 +195,7 @@ class CoinQuestRPG {
 
   async loadCharacterRewards() {
     try {
-      const response = await axios.get(`/api/character-rewards/${this.currentUser.id}`);
+      const response = await this.makeAuthenticatedRequest(`/api/character-rewards/${this.currentUser.id}`);
       this.characterRewards = response.data;
       this.updateCharacterDisplay();
       this.updateRewardsDisplay();
@@ -119,8 +206,9 @@ class CoinQuestRPG {
 
   async checkForNewRewards() {
     try {
-      const response = await axios.post('/api/check-rewards', {
-        user_id: this.currentUser.id
+      const response = await this.makeAuthenticatedRequest('/api/check-rewards', {
+        method: 'POST',
+        data: { user_id: this.currentUser.id }
       });
       
       if (response.data.newRewards && response.data.newRewards.length > 0) {
@@ -158,6 +246,77 @@ class CoinQuestRPG {
 
     if (xpProgress) xpProgress.textContent = `${this.userStats.experience_points} / ${nextLevelXP} XP to next rank`;
     if (xpBar) xpBar.style.width = `${Math.min(progress, 100)}%`;
+
+    // Update subscription status display
+    this.updateSubscriptionDisplay();
+  }
+
+  updateSubscriptionDisplay() {
+    // Add subscription status to the header
+    const header = document.querySelector('header');
+    let subscriptionStatus = document.getElementById('subscriptionStatus');
+    
+    if (!subscriptionStatus && header) {
+      subscriptionStatus = document.createElement('div');
+      subscriptionStatus.id = 'subscriptionStatus';
+      subscriptionStatus.className = 'text-center mt-2';
+      header.appendChild(subscriptionStatus);
+    }
+
+    if (subscriptionStatus && this.currentUser) {
+      const status = this.currentUser.subscription_status;
+      const plan = this.currentUser.subscription_plan;
+      
+      if (status === 'trial') {
+        const daysLeft = this.currentUser.trial_days_left || 0;
+        subscriptionStatus.innerHTML = `
+          <div class="bg-blue-600/30 border border-blue-400 rounded px-3 py-1 text-sm">
+            🆓 Free Trial - ${daysLeft} days remaining
+            <button onclick="app.showUpgradeModal()" class="ml-2 text-yellow-400 hover:text-yellow-300 underline">
+              Upgrade Now
+            </button>
+          </div>
+        `;
+      } else if (status === 'active') {
+        subscriptionStatus.innerHTML = `
+          <div class="bg-green-600/30 border border-green-400 rounded px-3 py-1 text-sm">
+            ✅ ${this.getPlanDisplayName(plan)} - Active
+            <button onclick="app.showAccountModal()" class="ml-2 text-yellow-400 hover:text-yellow-300 underline">
+              Manage
+            </button>
+          </div>
+        `;
+      } else if (status === 'expired') {
+        subscriptionStatus.innerHTML = `
+          <div class="bg-red-600/30 border border-red-400 rounded px-3 py-1 text-sm">
+            ⚠️ Subscription Expired
+            <button onclick="app.showUpgradeModal()" class="ml-2 text-yellow-400 hover:text-yellow-300 underline">
+              Renew Now
+            </button>
+          </div>
+        `;
+      }
+    }
+  }
+
+  getPlanDisplayName(plan) {
+    const planNames = {
+      'trial': 'Free Trial',
+      'basic': 'Adventurer Plan',
+      'premium': 'Noble Plan',
+      'ultimate': 'Elder Master Plan'
+    };
+    return planNames[plan] || plan;
+  }
+
+  updateTrialStatus(subscriptionData) {
+    this.currentUser.trial_days_left = Math.max(0, Math.ceil(
+      (new Date(subscriptionData.trial_end_date) - new Date()) / (1000 * 60 * 60 * 24)
+    ));
+    
+    // Update localStorage
+    localStorage.setItem('user_data', JSON.stringify(this.currentUser));
+    this.updateSubscriptionDisplay();
   }
 
   updateCharacterDisplay() {
@@ -311,9 +470,12 @@ class CoinQuestRPG {
 
   async equipReward(rewardId) {
     try {
-      const response = await axios.post('/api/equip-reward', {
-        user_id: this.currentUser.id,
-        reward_id: rewardId
+      const response = await this.makeAuthenticatedRequest('/api/equip-reward', {
+        method: 'POST',
+        data: {
+          user_id: this.currentUser.id,
+          reward_id: rewardId
+        }
       });
       
       if (response.data.success) {
@@ -324,6 +486,219 @@ class CoinQuestRPG {
     } catch (error) {
       console.error('Error equipping reward:', error);
       this.showError('Failed to equip item. Make sure you have unlocked it!');
+    }
+  }
+
+  showUpgradeModal() {
+    // Create upgrade modal if it doesn't exist
+    let modal = document.getElementById('upgradeModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'upgradeModal';
+      modal.className = 'fixed inset-0 z-50 hidden items-center justify-center bg-black/80';
+      modal.innerHTML = `
+        <div class="glass rounded-lg p-8 w-full max-w-4xl mx-4 max-h-screen overflow-y-auto">
+          <h2 class="medieval-title text-3xl font-bold gold-text text-center mb-6">⚔️ Choose Your Adventure Plan</h2>
+          <div id="subscription-plans" class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+            <!-- Plans will be loaded here -->
+          </div>
+          <div class="text-center">
+            <button onclick="app.closeModal('upgradeModal')" class="bg-gray-600 hover:bg-gray-700 px-6 py-3 rounded font-medium transition-all">
+              Close
+            </button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+    
+    this.loadSubscriptionPlans();
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+  }
+
+  showAccountModal() {
+    // Create account management modal
+    let modal = document.getElementById('accountModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'accountModal';
+      modal.className = 'fixed inset-0 z-50 hidden items-center justify-center bg-black/80';
+      modal.innerHTML = `
+        <div class="glass rounded-lg p-8 w-full max-w-md mx-4">
+          <h2 class="medieval-title text-2xl font-bold gold-text text-center mb-6">⚔️ Account Management</h2>
+          <div class="space-y-4">
+            <div class="text-center">
+              <p class="text-yellow-300">Logged in as:</p>
+              <p class="text-white font-bold">${this.currentUser.name}</p>
+              <p class="text-yellow-400">${this.currentUser.email}</p>
+            </div>
+            
+            <div class="text-center">
+              <p class="text-yellow-300">Current Plan:</p>
+              <p class="text-white font-bold">${this.getPlanDisplayName(this.currentUser.subscription_plan)}</p>
+            </div>
+            
+            <div class="space-y-2">
+              <button onclick="app.showUpgradeModal(); app.closeModal('accountModal')" 
+                      class="w-full medieval-btn py-3 rounded font-medium">
+                🏰 Change Plan
+              </button>
+              
+              <button onclick="app.logout()" 
+                      class="w-full bg-red-600 hover:bg-red-700 py-3 rounded font-medium transition-all text-white">
+                🚪 Logout
+              </button>
+            </div>
+            
+            <div class="text-center">
+              <button onclick="app.closeModal('accountModal')" class="text-yellow-400 hover:text-yellow-300">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+    
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+  }
+
+  showSubscriptionExpiredModal() {
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/90';
+    modal.innerHTML = `
+      <div class="glass rounded-lg p-8 w-full max-w-md mx-4 text-center">
+        <div class="text-6xl mb-4">⚠️</div>
+        <h2 class="medieval-title text-2xl font-bold text-red-400 mb-4">Quest Suspended!</h2>
+        <p class="text-yellow-300 mb-6">Your subscription has expired. Renew to continue your financial adventure!</p>
+        <div class="space-y-4">
+          <button onclick="app.showUpgradeModal(); this.parentElement.parentElement.parentElement.remove()" 
+                  class="w-full medieval-btn py-3 rounded font-bold">
+            🏰 Renew Subscription
+          </button>
+          <button onclick="app.logout()" 
+                  class="w-full bg-gray-600 hover:bg-gray-700 py-3 rounded font-medium transition-all">
+            🚪 Logout
+          </button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+  }
+
+  async loadSubscriptionPlans() {
+    try {
+      const response = await this.makeAuthenticatedRequest('/api/subscription/plans');
+      const plans = response.data;
+      
+      const container = document.getElementById('subscription-plans');
+      if (!container) return;
+      
+      container.innerHTML = plans.map(plan => `
+        <div class="bg-gray-800/50 rounded-lg p-6 border-2 ${this.getPlanBorderColor(plan.name)} 
+             ${plan.name === 'basic' ? 'transform scale-105' : ''}">
+          <div class="text-center">
+            ${plan.name === 'basic' ? '<div class="bg-blue-500 text-white px-3 py-1 rounded-full text-xs font-bold mb-2">MOST POPULAR</div>' : ''}
+            <h3 class="medieval-title text-xl font-bold ${this.getPlanTextColor(plan.name)} mb-2">${plan.display_name}</h3>
+            <div class="text-3xl font-bold text-white mb-2">$${plan.price_monthly}</div>
+            <div class="text-sm text-gray-400 mb-4">per month</div>
+            <div class="text-sm text-gray-300 mb-6">${plan.description}</div>
+            ${plan.name === this.currentUser.subscription_plan ? 
+              '<button class="w-full bg-green-600 py-3 rounded font-bold text-white" disabled>Current Plan</button>' :
+              `<button onclick="app.subscribeToPlan(${plan.id}, '${plan.name}', 'monthly')" 
+                       class="w-full medieval-btn py-3 rounded font-bold transition-all hover:scale-105">
+                 Choose This Plan
+               </button>`
+            }
+          </div>
+        </div>
+      `).join('');
+    } catch (error) {
+      console.error('Error loading subscription plans:', error);
+      this.showError('Failed to load subscription plans');
+    }
+  }
+
+  async subscribeToPlan(planId, planName, billingCycle = 'monthly') {
+    try {
+      this.showLoading('Upgrading your adventure...');
+      
+      const response = await this.makeAuthenticatedRequest('/api/subscription/subscribe', {
+        method: 'POST',
+        data: {
+          plan_id: planId,
+          billing_cycle: billingCycle
+        }
+      });
+      
+      if (response.data.success) {
+        // Update user data
+        this.currentUser.subscription_status = 'active';
+        this.currentUser.subscription_plan = planName;
+        localStorage.setItem('user_data', JSON.stringify(this.currentUser));
+        
+        this.hideLoading();
+        this.closeModal('upgradeModal');
+        this.showSuccess('🏰 Subscription upgraded! Your adventure continues!');
+        
+        // Refresh data
+        await this.loadUserStats();
+      }
+    } catch (error) {
+      console.error('Subscription error:', error);
+      this.hideLoading();
+      this.showError('Subscription failed. Please try again.');
+    }
+  }
+
+  getPlanBorderColor(planName) {
+    const colors = {
+      'trial': 'border-gray-600',
+      'basic': 'border-blue-400',
+      'premium': 'border-purple-400',
+      'ultimate': 'border-yellow-400'
+    };
+    return colors[planName] || 'border-gray-600';
+  }
+
+  getPlanTextColor(planName) {
+    const colors = {
+      'trial': 'text-gray-400',
+      'basic': 'text-blue-400',
+      'premium': 'text-purple-400',
+      'ultimate': 'text-yellow-400'
+    };
+    return colors[planName] || 'text-gray-400';
+  }
+
+  showLoading(message) {
+    const loading = document.createElement('div');
+    loading.id = 'loading-overlay';
+    loading.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/80';
+    loading.innerHTML = `
+      <div class="glass rounded-lg p-8 text-center">
+        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-500 mx-auto mb-4"></div>
+        <p class="text-yellow-200 text-lg">${message}</p>
+      </div>
+    `;
+    document.body.appendChild(loading);
+  }
+
+  hideLoading() {
+    const loading = document.getElementById('loading-overlay');
+    if (loading) {
+      loading.remove();
+    }
+  }
+
+  closeModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
     }
   }
 
@@ -670,7 +1045,10 @@ class CoinQuestRPG {
         type: formData.get('type')
       };
 
-      const response = await axios.post('/api/budget-entry', entry);
+      const response = await this.makeAuthenticatedRequest('/api/budget-entry', {
+        method: 'POST',
+        data: entry
+      });
       
       if (response.data.levelUp) {
         this.showLevelUpModal(response.data.newLevel);
@@ -702,7 +1080,10 @@ class CoinQuestRPG {
         amount: parseFloat(formData.get('amount'))
       };
 
-      const response = await axios.post('/api/pay-debt', payment);
+      const response = await this.makeAuthenticatedRequest('/api/pay-debt', {
+        method: 'POST',
+        data: payment
+      });
       
       if (response.data.paidOff) {
         this.showSuccess('🐉 DRAGON SLAIN! The beast has been vanquished! Your legend grows! 🏆');
