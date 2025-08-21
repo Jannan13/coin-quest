@@ -1,208 +1,246 @@
-# Budget Level Up - Gamified Mobile Finance App
+# ⚔️ Coin Quest RPG - Medieval Budget Adventure
 
 ## Project Overview
-- **Name**: Budget Level Up
-- **Goal**: A gamified mobile-first budget tracking app that motivates users to save money and pay off debt through a level-up system with video backgrounds
+- **Name**: Coin Quest RPG
+- **Theme**: Elder Scrolls-inspired medieval fantasy budget management
+- **Goal**: Transform financial management into an epic RPG adventure where you level up by saving gold and slaying debt dragons
 - **Features**: 
-  - 📊 Budget tracking (income, expenses, savings)
-  - 💳 Debt management and payoff tracking
-  - 🎮 Gamification system with levels and achievements
-  - 🎬 Dynamic video backgrounds that change as you level up
-  - 📱 Mobile-responsive design with glass morphism UI
-  - 🏆 Achievement system to reward financial milestones
+  - 🏰 Medieval fantasy theme with Elder Scrolls-style progression
+  - ⚔️ Character customization with unlockable armor, weapons, and titles
+  - 🐉 Debt dragons to slay for experience and rewards
+  - 👑 Epic level progression from Peasant to Elder Master
+  - 🎬 Medieval-themed video backgrounds that evolve with your journey
+  - 📱 Mobile-responsive design with glass morphism medieval UI
+  - 🏆 Achievement system with fantasy rewards and titles
 
 ## Live URLs
 - **Development**: https://3000-iyzxp45g1y4nga25l9v59-6532622b.e2b.dev
 - **GitHub**: (To be configured)
 - **Production**: (To be deployed to Cloudflare Pages)
 
-## Current Features
+## 🏰 Medieval Fantasy Features
 
-### ✅ Completed Features
-1. **User Profile & Gamification**
-   - Level tracking with experience points (XP)
-   - Dynamic video backgrounds that change with user level
-   - Progress bars and visual level indicators
+### ✅ Character Progression System
+1. **Epic Level Titles**
+   - Level 1: Peasant Coin-Counter
+   - Level 2: Apprentice Merchant
+   - Level 3: Skilled Trader
+   - Level 4: Guild Treasurer
+   - Level 5: Noble Financier
+   - Level 6: Royal Advisor
+   - Level 7: Dragon Slayer of Debt
+   - Level 8: Archmage of Assets
+   - Level 9: Legendary Coin Lord
+   - Level 10: Elder Scrolls Master of Gold
 
-2. **Budget Tracking**
-   - Add income entries with categorization
-   - Track expenses across different categories
-   - Monitor savings with goal-oriented tracking
-   - Real-time budget calculations and summaries
+2. **Character Customization**
+   - **Helmets**: From Leather Cap to Elder Circlet of Wisdom
+   - **Armor**: From Cloth Rags to Elder Robes of Mastery
+   - **Weapons**: From Wooden Stick to Elder Staff of Gold Mastery
+   - **Shields**: From Wooden Buckler to Dragonscale Shield
+   - **Accessories**: Enchanted Coin Pouches, Golden Rings, Elder Amulets
+   - **Titles**: From Coin Seeker to Elder Master of All Coins
 
-3. **Debt Management**
-   - Track multiple debts with current balances
-   - Record debt payments and visualize progress
-   - Minimum payment reminders and quick pay buttons
-   - Progress visualization with completion percentages
+3. **Equipment Rarity System**
+   - **Common** (Gray): Basic starting equipment
+   - **Rare** (Blue): Improved equipment for dedicated adventurers
+   - **Epic** (Purple): Powerful gear for serious financial warriors
+   - **Legendary** (Gold): Mighty equipment forged from dragon parts
+   - **Mythic** (Red): Ultimate Elder Scrolls-level legendary items
 
-4. **Achievement System**
-   - 7 different achievements to unlock
-   - Requirements based on savings, debt payments, and levels
-   - Visual achievement cards with lock/unlock states
+### 🐉 Debt Dragon Slaying System
+- Transform debts into fearsome dragons to battle
+- Different dragon types based on debt size (small dragons to ancient wyrms)
+- Visual health bars showing dragon strength
+- Epic combat messages and victory celebrations
+- Unlock dragon-themed equipment by slaying debt beasts
 
-5. **Dashboard & Analytics**
-   - Monthly summary statistics
-   - Recent transaction history
-   - Quick action buttons for common tasks
-   - Real-time data updates after transactions
+### 🏆 Medieval Achievement System
+- **First Copper Earned** 🪙 - Begin your financial quest
+- **Debt Dragon Wounded** ⚔️ - Strike your first blow against debt
+- **Seven Day Quest** 🗡️ - Maintain saving discipline
+- **Guild Master Status** 👑 - Achieve leadership rank
+- **Dragon Slayer** 🐉 - Vanquish mighty debt dragons
+- **Emergency Vault Guardian** 🛡️ - Build protective treasure reserves
+- **Elder Scrolls Legend** 📜 - Achieve ultimate mastery
 
-### 🔄 Features In Progress
-- Enhanced budget analysis and forecasting
-- Savings goal progress tracking with timelines
-- Additional achievement categories
+## 📋 Functional Entry URIs
 
-### 📋 Functional Entry URIs
+### User & Character Management
+- `GET /api/user/:id` - Get user profile with medieval character stats
+- **Returns**: Character class, title, equipped items, level, XP, medieval titles
 
-#### User Management
-- `GET /api/user/:id` - Get user profile with stats and level info
-- **Parameters**: User ID (integer)
-- **Returns**: User data, current level, XP, achievements count, video background URL
+### Character Customization
+- `GET /api/character-rewards/:userId` - Get all available character rewards
+- **Returns**: Equipment by type (helmet, armor, weapon, shield, accessory), unlock requirements, rarity
+- `POST /api/equip-reward` - Equip character customization item
+- **Body**: `{user_id, reward_id}`
+- `POST /api/check-rewards` - Check for newly unlocked rewards
+- **Returns**: List of newly available equipment
 
-#### Dashboard Data
-- `GET /api/dashboard/:userId` - Get complete dashboard data
-- **Parameters**: User ID (integer) 
-- **Returns**: Monthly stats, recent transactions, active debts, savings goals
-
-#### Budget Operations
-- `POST /api/budget-entry` - Add new budget entry (income/expense/savings)
+### Quest & Combat System
+- `GET /api/dashboard/:userId` - Get complete quest hall data
+- **Returns**: Monthly treasury report, recent quest activity, active debt dragons
+- `POST /api/budget-entry` - Complete financial quest (earn/spend/save gold)
 - **Body**: `{user_id, category_id, amount, description, entry_date, type}`
-- **Returns**: Entry ID, level up status, new level (if applicable)
-
-#### Debt Management
-- `POST /api/pay-debt` - Make a debt payment
+- **Returns**: XP gained, level up status, newly unlocked rewards
+- `POST /api/pay-debt` - Attack debt dragon
 - **Body**: `{user_id, debt_id, amount}`
-- **Returns**: Success status, new balance, paid off status
+- **Returns**: Dragon damage dealt, slaying status, victory rewards
 
-#### Reference Data
-- `GET /api/categories` - Get all budget categories with icons and colors
-- `GET /api/achievements/:userId` - Get user's achievement progress
+### Reference Data
+- `GET /api/categories` - Get quest categories with medieval theming
+- `GET /api/achievements/:userId` - Get medieval achievement progress
+
+## 🎮 Character Customization System
+
+### Equipment Categories
+
+#### 🛡️ **Helmets** (5 items)
+- **Leather Cap** (Common, Level 2) - Simple merchant headwear
+- **Iron Helm** (Rare, Level 4) - Sturdy trader protection
+- **Steel Crown** (Epic, Level 6) - Crown of coin mastery
+- **Dragonbone Helm** (Legendary, Level 8) - Forged from debt dragon bones
+- **Elder Circlet of Wisdom** (Mythic, Level 10) - Ancient headpiece of masters
+
+#### ⚔️ **Weapons** (6 items)  
+- **Wooden Stick** (Common, Level 1) - Humble hero beginnings
+- **Copper Counting Dagger** (Common, Level 2) - Cuts through bad habits
+- **Iron Sword of Budgeting** (Rare, Level 4) - Reliable financial blade
+- **Steel Axe of Debt Cleaving** (Epic, Level 6) - Cleaves through debts
+- **Dragonbone Greatsword** (Legendary, Level 8) - Legendary debt slayer weapon
+- **Elder Staff of Gold Mastery** (Mythic, Level 10) - Channel ancient coin magic
+
+#### 🛡️ **Armor** (6 items)
+- **Cloth Rags** (Common, Level 1) - Humble financial hero beginnings
+- **Merchant Leather Vest** (Common, Level 2) - Practical coin handling gear
+- **Chainmail of Saving** (Rare, Level 4) - Protection against temptation
+- **Plate Armor of Prosperity** (Epic, Level 6) - Heavy armor for coin warriors
+- **Dragonscale Hauberk** (Legendary, Level 8) - Armor from dragon scales
+- **Elder Robes of Mastery** (Mythic, Level 10) - Mystical archmage robes
+
+#### 🛡️ **Shields** (3 items)
+- **Wooden Buckler** (Common, Level 3) - Basic overspending protection
+- **Iron Shield of Saving** (Rare, Level 5) - Deflects impulse purchases
+- **Dragonscale Shield** (Legendary, Level 9) - Ultimate financial protection
+
+#### 💍 **Accessories** (3 items)
+- **Enchanted Coin Pouch** (Rare, Level 3) - Holds infinite coins
+- **Golden Ring of Prosperity** (Epic, Level 7) - Attracts wealth
+- **Elder Amulet of Infinite Wealth** (Mythic, Level 10) - Ultimate mastery symbol
 
 ## Data Architecture
 
-### Database Schema (Cloudflare D1 SQLite)
-- **users** - User profiles, levels, XP, total savings/debt paid
-- **categories** - Budget categories (income, expense, savings, debt)
-- **budget_entries** - All financial transactions with categorization
-- **debts** - User debt tracking with original/current amounts
-- **savings_goals** - Savings targets with progress tracking
-- **achievements** - Available achievements with requirements
-- **user_achievements** - Unlocked achievements per user
-- **level_milestones** - Level definitions with XP requirements and rewards
+### Enhanced Database Schema (Cloudflare D1 SQLite)
+**Core Tables:**
+- **users** - Enhanced with character_class, character_title, equipped items
+- **categories** - Quest categories with medieval theming
+- **budget_entries** - Financial quests and adventures
+- **debts** - Debt dragons to slay
+- **achievements** - Medieval honor system
 
-### Storage Services Used
-- **Cloudflare D1**: SQLite database for all relational data
-- **Local Storage**: Session data and UI state management
-- **Static Assets**: Video backgrounds, CSS, JavaScript files
+**Character System Tables:**
+- **character_rewards** - All available equipment and customization items
+- **user_rewards** - User's unlocked and equipped items
+- **level_milestones** - Medieval level progression with titles and descriptions
 
-### Data Flow
-1. User performs financial action (save, spend, pay debt)
-2. Transaction recorded in budget_entries table
-3. Database triggers update user totals and calculate XP
-4. System checks for level-ups and achievement unlocks
-5. Frontend receives updates and shows animations/notifications
-6. Video background changes if user leveled up
+### Medieval Data Flow
+1. User completes financial quest (earn gold, spend gold, store treasure, slay dragons)
+2. Experience points awarded based on quest type and value
+3. System checks for level progression and new rank titles
+4. Character rewards system evaluates newly unlocked equipment
+5. User receives notifications for new gear, titles, and achievements
+6. Character avatar updates with new equipment and visual progression
 
-## User Guide
+## 🎮 User Guide
 
-### Getting Started
-1. **Dashboard**: View your financial overview and current level
-2. **Quick Actions**: Use the four main buttons to quickly:
-   - Add income (salary, freelance, etc.)
-   - Record expenses (food, transport, entertainment)
-   - Log savings deposits
-   - Make debt payments
+### Starting Your Adventure
+1. **Quest Hall**: Your main hub for viewing financial adventures and character stats
+2. **Character Creation**: Begin as a humble Peasant with cloth rags and wooden stick
+3. **Quest System**: Complete four types of financial quests:
+   - 🪙 **Earn Gold** - Record income from various sources
+   - 🛒 **Spend Gold** - Track expenses across categories
+   - 💎 **Store Treasure** - Build savings for future adventures
+   - ⚔️ **Slay Dragons** - Attack and defeat debt dragons
 
-### Gamification System
-- **Experience Points (XP)**: Earn XP for every financial action
-  - Savings: 1 XP per $10 saved
-  - Debt Payments: 1 XP per $5 paid toward debt
-- **Levels**: Progress through 10 levels, each with unique video backgrounds
-- **Achievements**: Unlock 7 achievements by hitting financial milestones
+### Character Progression
+- **Experience Points**: Gain XP for every financial action
+  - Treasure Storage: 1 XP per 10 gold saved
+  - Dragon Slaying: 1 XP per 5 gold of debt defeated
+- **Level Up**: Progress through 10 epic ranks with medieval titles
+- **Equipment Unlocks**: Unlock new gear based on level, savings, and dragon slaying
 
-### Managing Your Money
-1. **Budget Tab**: (Coming soon) Detailed budget analysis
-2. **Debts Tab**: View all debts with progress bars and quick payment options
-3. **Achievements Tab**: Track your progress toward financial goals
+### Equipment System
+1. **Character Tab**: View your character with all equipment slots
+2. **Equipment Categories**: Browse helmets, armor, weapons, shields, accessories
+3. **Rarity System**: Equipment ranges from Common to Mythic rarity
+4. **Equip Items**: Click unlocked equipment to equip and customize your character
+5. **Visual Updates**: Watch your character avatar transform with new gear
 
-### Level Progression
-- **Level 1**: Budget Beginner (0 XP) - Start your journey
-- **Level 2**: Savings Starter (100 XP) - Building habits
-- **Level 3**: Debt Fighter (300 XP) - Taking control
-- **Level 4**: Budget Pro (600 XP) - Mastering money
-- **Level 5**: Financial Warrior (1000 XP) - Outstanding discipline
-- And more levels up to **Financial Legend** (Level 10)
+### Dragon Combat System
+1. **Dragons Tab**: View all debt dragons that threaten your financial realm
+2. **Dragon Types**: Different dragons based on debt size and danger level
+3. **Combat Actions**: Attack dragons with gold payments
+4. **Victory Rewards**: Unlock dragon-themed equipment and titles
+5. **Health Bars**: Watch dragons weaken as you make payments
 
 ## Technical Stack
 
-### Frontend
-- **Framework**: Mobile-first responsive design
-- **Styling**: TailwindCSS with glass morphism effects
-- **Icons**: Font Awesome for consistent iconography
-- **JavaScript**: Vanilla JS with Axios for API calls
-- **Features**: Real-time updates, smooth animations, modal dialogs
+### Frontend Enhancements
+- **Fonts**: Medieval-themed fonts (Cinzel, MedievalSharp)
+- **Color Scheme**: Gold, brown, amber medieval palette
+- **Animations**: Equipment equipping, level-up celebrations, dragon combat
+- **Icons**: Medieval fantasy icons for all equipment and actions
 
-### Backend
-- **Framework**: Hono (lightweight, fast)
-- **Runtime**: Cloudflare Workers
-- **Database**: Cloudflare D1 (SQLite)
-- **API**: RESTful JSON APIs
-
-### Development
-- **Build Tool**: Vite for fast development and building
-- **Package Manager**: npm
-- **Process Manager**: PM2 for development server
-- **Database Migrations**: Wrangler D1 migrations system
+### Backend Features
+- **Character System API**: Complete equipment and customization management
+- **Reward Unlocking**: Automatic checking and notification of new rewards
+- **Equipment Management**: Equip/unequip system with visual updates
+- **Medieval Theming**: All text and messaging transformed to fantasy theme
 
 ## Deployment
 
 ### Current Status
 - **Platform**: Cloudflare Pages (Ready for deployment)
-- **Status**: ✅ Development Active
-- **Local Development**: PM2 with wrangler pages dev
-- **Database**: Local D1 SQLite for development
+- **Status**: ✅ Medieval Transformation Complete
+- **Features**: Full character customization, equipment system, medieval theming
+- **Database**: Enhanced with complete character reward system
 
 ### Environment Setup
 ```bash
-# Install dependencies
+# Install dependencies and apply medieval updates
 npm install
 
-# Setup local database
+# Setup enhanced database with character system
 npm run db:migrate:local
 npm run db:seed
 
-# Start development server
+# Start medieval adventure server
 npm run clean-port
 pm2 start ecosystem.config.cjs
 
-# Test the application
+# Test your medieval adventure
 npm run test
 ```
 
-### Production Deployment
-```bash
-# Build for production
-npm run build
-
-# Deploy to Cloudflare Pages
-npm run deploy:prod
-```
-
 ## Recent Updates
-- **2024-08-20**: Complete mobile app implementation with full gamification system
-- **Features Added**: Video backgrounds, achievement system, debt tracking, mobile-responsive UI
-- **Database**: Full D1 schema with triggers for automatic XP calculation
-- **API**: Complete RESTful API for all budget operations
+- **2024-08-21**: Complete medieval transformation with Elder Scrolls-style theming
+- **Character System**: 32 unique equipment items across 6 categories with 5 rarity levels
+- **Medieval UI**: Complete visual overhaul with fantasy fonts, colors, and animations
+- **Dragon Combat**: Debt dragons with health bars, combat messages, and victory celebrations
+- **Equipment Visualization**: Character avatar with equipment slots and visual updates
+- **Achievement Overhaul**: Medieval-themed achievements with fantasy descriptions
+- **Level Progression**: Epic titles from Peasant to Elder Scrolls Master
 
 ## Next Development Steps
-1. **Enhanced Analytics**: Add spending category breakdowns and trends
-2. **Video Content**: Replace placeholder videos with actual motivational content
-3. **Social Features**: Add sharing achievements and comparing progress
-4. **Notifications**: Push notifications for payment reminders and achievements
-5. **Cloud Deployment**: Deploy to production Cloudflare Pages
-6. **Advanced Goals**: Add custom savings goals with deadline tracking
-7. **Export Features**: Allow users to export their financial data
+1. **Video Content**: Add actual medieval fantasy video backgrounds
+2. **Sound Effects**: Medieval music and combat sounds
+3. **Enhanced Animations**: Equipment transformation effects and level-up celebrations
+4. **Social Features**: Guild system for sharing achievements
+5. **Advanced Combat**: Special attacks and dragon boss battles
+6. **Crafting System**: Combine materials to create custom equipment
+7. **Realm Expansion**: Additional zones and higher level content
 
 ---
 
-**Note**: This app demonstrates modern web development with edge computing, real-time data, and engaging user experience design. The gamification elements make financial management fun and motivating! 🚀💰
+**⚔️ Welcome to Coin Quest RPG! Transform your financial journey into an epic medieval adventure where every gold coin saved and every debt dragon slain brings you closer to becoming an Elder Scrolls Master of Gold! 🏰💰**

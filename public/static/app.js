@@ -1,11 +1,12 @@
-// Budget Level Up App JavaScript
-class BudgetApp {
+// Coin Quest RPG - Medieval Budget Adventure
+class CoinQuestRPG {
   constructor() {
     this.currentUser = { id: 1, name: 'Demo User' }; // Demo user
     this.currentTab = 'dashboard';
     this.categories = [];
     this.debts = [];
     this.achievements = [];
+    this.characterRewards = [];
     this.userStats = {};
     
     this.init();
@@ -22,7 +23,8 @@ class BudgetApp {
         this.loadCategories(),
         this.loadDashboardData(),
         this.loadDebts(),
-        this.loadAchievements()
+        this.loadAchievements(),
+        this.loadCharacterRewards()
       ]);
       
       // Set up event listeners
@@ -35,17 +37,16 @@ class BudgetApp {
       document.getElementById('loadingScreen').style.display = 'none';
       document.getElementById('app').style.display = 'block';
       
-      console.log('Budget Level Up App initialized successfully');
+      console.log('🏰 Coin Quest RPG initialized successfully');
     } catch (error) {
       console.error('Error initializing app:', error);
-      this.showError('Failed to initialize app. Please refresh the page.');
+      this.showError('Failed to initialize your medieval adventure. Please refresh the page.');
     }
   }
 
   async initializeDatabase() {
     try {
-      // This will be handled by the migration system
-      console.log('Database initialization handled by migrations');
+      console.log('⚔️ Initializing medieval database...');
     } catch (error) {
       console.error('Database initialization error:', error);
     }
@@ -57,6 +58,7 @@ class BudgetApp {
       this.userStats = response.data;
       this.updateUserDisplay();
       this.updateVideoBackground();
+      await this.checkForNewRewards();
     } catch (error) {
       console.error('Error loading user stats:', error);
     }
@@ -104,6 +106,32 @@ class BudgetApp {
     }
   }
 
+  async loadCharacterRewards() {
+    try {
+      const response = await axios.get(`/api/character-rewards/${this.currentUser.id}`);
+      this.characterRewards = response.data;
+      this.updateCharacterDisplay();
+      this.updateRewardsDisplay();
+    } catch (error) {
+      console.error('Error loading character rewards:', error);
+    }
+  }
+
+  async checkForNewRewards() {
+    try {
+      const response = await axios.post('/api/check-rewards', {
+        user_id: this.currentUser.id
+      });
+      
+      if (response.data.newRewards && response.data.newRewards.length > 0) {
+        this.showNewRewardsModal(response.data.newRewards);
+        await this.loadCharacterRewards(); // Reload rewards
+      }
+    } catch (error) {
+      console.error('Error checking for new rewards:', error);
+    }
+  }
+
   updateUserDisplay() {
     if (!this.userStats) return;
 
@@ -112,18 +140,191 @@ class BudgetApp {
     const xp = document.getElementById('userXP');
     const xpProgress = document.getElementById('xpProgress');
     const xpBar = document.getElementById('xpBar');
+    const characterTitle = document.getElementById('characterTitle');
+    const characterClass = document.getElementById('characterClass');
+    const goldCount = document.getElementById('goldCount');
 
     if (greeting) greeting.textContent = `Welcome back, ${this.userStats.name}!`;
     if (level) level.textContent = `Level ${this.userStats.current_level}`;
     if (xp) xp.textContent = `${this.userStats.experience_points} XP`;
+    if (characterTitle) characterTitle.textContent = this.userStats.character_title || 'Peasant Coin-Counter';
+    if (characterClass) characterClass.textContent = this.userStats.character_class || 'Peasant';
+    if (goldCount) goldCount.textContent = `${Math.floor(this.userStats.total_saved)} 🪙`;
 
     // Calculate XP progress to next level
     const nextLevelXP = this.getNextLevelXP(this.userStats.current_level);
     const currentLevelXP = this.getCurrentLevelXP(this.userStats.current_level);
     const progress = ((this.userStats.experience_points - currentLevelXP) / (nextLevelXP - currentLevelXP)) * 100;
 
-    if (xpProgress) xpProgress.textContent = `${this.userStats.experience_points} / ${nextLevelXP} XP`;
+    if (xpProgress) xpProgress.textContent = `${this.userStats.experience_points} / ${nextLevelXP} XP to next rank`;
     if (xpBar) xpBar.style.width = `${Math.min(progress, 100)}%`;
+  }
+
+  updateCharacterDisplay() {
+    const characterIcon = document.getElementById('characterIcon');
+    const helmetIcon = document.getElementById('helmetIcon');
+    const weaponIcon = document.getElementById('weaponIcon');
+    const shieldIcon = document.getElementById('shieldIcon');
+    const armorIcon = document.getElementById('armorIcon');
+    const accessoryIcon = document.getElementById('accessoryIcon');
+
+    // Find equipped items
+    const equippedItems = this.characterRewards.filter(reward => reward.equipped);
+    
+    // Set equipment icons based on equipped items
+    equippedItems.forEach(item => {
+      const icon = this.getEquipmentIcon(item.name, item.type);
+      switch (item.type) {
+        case 'helmet':
+          if (helmetIcon) helmetIcon.textContent = icon;
+          break;
+        case 'weapon':
+          if (weaponIcon) weaponIcon.textContent = icon;
+          break;
+        case 'shield':
+          if (shieldIcon) shieldIcon.textContent = icon;
+          break;
+        case 'armor':
+          if (armorIcon) armorIcon.textContent = icon;
+          break;
+        case 'accessory':
+          if (accessoryIcon) accessoryIcon.textContent = icon;
+          break;
+      }
+    });
+
+    // Update character background based on level
+    if (characterIcon) {
+      const levelIcons = ['🏰', '🏛️', '🏯', '🎪', '🏘️', '🏰', '🏯', '🌟', '👑', '⭐'];
+      characterIcon.textContent = levelIcons[Math.min(this.userStats.current_level - 1, levelIcons.length - 1)];
+    }
+  }
+
+  updateRewardsDisplay() {
+    const helmetRewards = document.getElementById('helmetRewards');
+    const armorRewards = document.getElementById('armorRewards');
+    const weaponRewards = document.getElementById('weaponRewards');
+
+    if (!helmetRewards || !armorRewards || !weaponRewards) return;
+
+    // Group rewards by type
+    const rewardsByType = {
+      helmet: this.characterRewards.filter(r => r.type === 'helmet'),
+      armor: this.characterRewards.filter(r => r.type === 'armor'),
+      weapon: this.characterRewards.filter(r => r.type === 'weapon')
+    };
+
+    // Display helmets
+    helmetRewards.innerHTML = rewardsByType.helmet.map(reward => this.createRewardCard(reward)).join('');
+    
+    // Display armor
+    armorRewards.innerHTML = rewardsByType.armor.map(reward => this.createRewardCard(reward)).join('');
+    
+    // Display weapons
+    weaponRewards.innerHTML = rewardsByType.weapon.map(reward => this.createRewardCard(reward)).join('');
+  }
+
+  createRewardCard(reward) {
+    const icon = this.getEquipmentIcon(reward.name, reward.type);
+    const rarityClass = `rarity-${reward.rarity}`;
+    const isUnlocked = reward.unlocked;
+    const isEquipped = reward.equipped;
+    
+    return `
+      <div class="equipment-slot ${rarityClass} ${isUnlocked ? 'cursor-pointer' : 'opacity-50'} 
+                  ${isEquipped ? 'bg-yellow-600' : ''} relative group"
+           onclick="${isUnlocked ? `app.equipReward(${reward.id})` : ''}"
+           style="width: 60px; height: 60px; font-size: 1.5rem;">
+        <span>${isUnlocked ? icon : '🔒'}</span>
+        ${isEquipped ? '<div class="absolute -top-1 -right-1 text-yellow-400 text-xs">✅</div>' : ''}
+        <div class="hidden group-hover:block absolute bottom-full left-1/2 transform -translate-x-1/2 
+                    bg-black text-white text-xs rounded px-2 py-1 whitespace-nowrap z-50 -mb-2">
+          <div class="font-bold">${reward.display_name}</div>
+          <div>${reward.description}</div>
+          <div class="text-${this.getRarityColor(reward.rarity)}">${reward.rarity.toUpperCase()}</div>
+          ${!isUnlocked ? `<div class="text-red-400">Requires Level ${reward.unlock_level}</div>` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  getEquipmentIcon(itemName, type) {
+    const icons = {
+      // Helmets
+      'leather_cap': '🎩',
+      'iron_helm': '⛑️',
+      'steel_crown': '👑',
+      'dragon_helm': '🐲',
+      'elder_circlet': '👑',
+      
+      // Armor
+      'cloth_rags': '👕',
+      'leather_vest': '🦺',
+      'chainmail': '🔗',
+      'plate_armor': '🛡️',
+      'dragon_scale': '🐉',
+      'elder_robes': '👘',
+      
+      // Weapons
+      'wooden_stick': '🏏',
+      'copper_dagger': '🗡️',
+      'iron_sword': '⚔️',
+      'steel_axe': '🪓',
+      'dragon_blade': '🗡️',
+      'elder_staff': '🔮',
+      
+      // Shields
+      'wooden_buckler': '🛡️',
+      'iron_shield': '🛡️',
+      'dragon_shield': '🛡️',
+      
+      // Accessories
+      'coin_pouch': '👛',
+      'golden_ring': '💍',
+      'elder_amulet': '🔮'
+    };
+    
+    return icons[itemName] || this.getDefaultIcon(type);
+  }
+
+  getDefaultIcon(type) {
+    const defaults = {
+      helmet: '⛑️',
+      armor: '👕',
+      weapon: '🗡️',
+      shield: '🛡️',
+      accessory: '💍'
+    };
+    return defaults[type] || '❓';
+  }
+
+  getRarityColor(rarity) {
+    const colors = {
+      common: 'gray-400',
+      rare: 'blue-400',
+      epic: 'purple-400',
+      legendary: 'yellow-400',
+      mythic: 'red-400'
+    };
+    return colors[rarity] || 'gray-400';
+  }
+
+  async equipReward(rewardId) {
+    try {
+      const response = await axios.post('/api/equip-reward', {
+        user_id: this.currentUser.id,
+        reward_id: rewardId
+      });
+      
+      if (response.data.success) {
+        await this.loadCharacterRewards();
+        await this.loadUserStats();
+        this.showSuccess('Equipment updated! Your character looks mighty!');
+      }
+    } catch (error) {
+      console.error('Error equipping reward:', error);
+      this.showError('Failed to equip item. Make sure you have unlocked it!');
+    }
   }
 
   getNextLevelXP(currentLevel) {
@@ -165,9 +366,9 @@ class BudgetApp {
       }
     });
 
-    if (incomeEl) incomeEl.textContent = `$${income.toFixed(2)}`;
-    if (expensesEl) expensesEl.textContent = `$${expenses.toFixed(2)}`;
-    if (savingsEl) savingsEl.textContent = `$${savings.toFixed(2)}`;
+    if (incomeEl) incomeEl.textContent = `${income.toFixed(0)} 🪙`;
+    if (expensesEl) expensesEl.textContent = `${expenses.toFixed(0)} 🪙`;
+    if (savingsEl) savingsEl.textContent = `${savings.toFixed(0)} 🪙`;
   }
 
   updateRecentTransactions(transactions) {
@@ -175,28 +376,58 @@ class BudgetApp {
     if (!container) return;
 
     if (transactions.length === 0) {
-      container.innerHTML = '<p class="text-gray-400 text-center py-4">No recent transactions</p>';
+      container.innerHTML = '<p class="text-yellow-400 text-center py-4">No recent quest activity</p>';
       return;
     }
 
     container.innerHTML = transactions.map(transaction => `
-      <div class="flex justify-between items-center p-3 bg-gray-800/50 rounded-lg">
+      <div class="flex justify-between items-center p-4 bg-amber-900/30 rounded-lg border border-yellow-600/30">
         <div class="flex items-center space-x-3">
-          <div class="text-2xl">${transaction.icon || '💰'}</div>
+          <div class="text-3xl">${this.getMedievalIcon(transaction.type, transaction.icon)}</div>
           <div>
-            <div class="font-medium">${transaction.category_name}</div>
-            <div class="text-sm opacity-70">${transaction.description || 'No description'}</div>
-            <div class="text-xs opacity-50">${new Date(transaction.entry_date).toLocaleDateString()}</div>
+            <div class="font-medium text-yellow-200">${this.getMedievalAction(transaction.type, transaction.category_name)}</div>
+            <div class="text-sm text-yellow-400">${transaction.description || 'No details recorded'}</div>
+            <div class="text-xs text-yellow-500">${new Date(transaction.entry_date).toLocaleDateString()}</div>
           </div>
         </div>
         <div class="text-right">
           <div class="font-bold ${this.getAmountColor(transaction.type)}">
-            ${this.formatAmount(transaction.amount, transaction.type)}
+            ${this.formatMedievalAmount(transaction.amount, transaction.type)}
           </div>
-          <div class="text-xs opacity-70">${transaction.type}</div>
+          <div class="text-xs text-yellow-500">${this.getMedievalType(transaction.type)}</div>
         </div>
       </div>
     `).join('');
+  }
+
+  getMedievalIcon(type, originalIcon) {
+    const icons = {
+      income: '🪙',
+      expense: '🛒',
+      savings: '💎',
+      debt_payment: '⚔️'
+    };
+    return icons[type] || originalIcon || '💰';
+  }
+
+  getMedievalAction(type, category) {
+    const actions = {
+      income: `Gold earned from ${category}`,
+      expense: `Gold spent on ${category}`,
+      savings: `Treasure stored in ${category}`,
+      debt_payment: `Dragon slaying: ${category}`
+    };
+    return actions[type] || category;
+  }
+
+  getMedievalType(type) {
+    const types = {
+      income: 'Gold Earned',
+      expense: 'Gold Spent',
+      savings: 'Treasure Stored',
+      debt_payment: 'Dragon Slain'
+    };
+    return types[type] || type;
   }
 
   updateDebtsDisplay() {
@@ -205,10 +436,11 @@ class BudgetApp {
 
     if (this.debts.length === 0) {
       container.innerHTML = `
-        <div class="glass rounded-lg p-6 text-center">
-          <i class="fas fa-check-circle text-6xl text-green-400 mb-4"></i>
-          <h3 class="text-xl font-bold mb-2">Debt Free!</h3>
-          <p class="text-gray-300">You have no active debts. Congratulations!</p>
+        <div class="glass rounded-lg p-8 text-center">
+          <i class="fas fa-dragon-fire text-8xl text-green-400 mb-4"></i>
+          <h3 class="medieval-title text-2xl font-bold mb-4 gold-text">All Dragons Slain!</h3>
+          <p class="text-yellow-300">You have conquered all debt dragons in the realm!</p>
+          <p class="text-yellow-400 text-sm mt-2">Your legend will be sung in taverns across the land!</p>
         </div>
       `;
       return;
@@ -216,37 +448,49 @@ class BudgetApp {
 
     container.innerHTML = this.debts.map(debt => {
       const progress = ((debt.original_amount - debt.current_amount) / debt.original_amount) * 100;
+      const dragonType = this.getDragonType(debt.current_amount);
+      
       return `
-        <div class="glass rounded-lg p-6">
+        <div class="glass rounded-lg p-6 border-2 border-red-600/50">
           <div class="flex justify-between items-start mb-4">
             <div>
-              <h3 class="text-xl font-bold">${debt.name}</h3>
-              <p class="text-sm opacity-70">Min. payment: $${debt.minimum_payment.toFixed(2)}</p>
-              ${debt.interest_rate ? `<p class="text-sm opacity-70">Interest rate: ${debt.interest_rate}%</p>` : ''}
+              <h3 class="medieval-title text-xl font-bold text-red-400">
+                ${dragonType.icon} ${debt.name} Dragon
+              </h3>
+              <p class="text-yellow-400">Minimum tribute: ${debt.minimum_payment.toFixed(0)} 🪙</p>
+              ${debt.interest_rate ? `<p class="text-red-300">Dragon's greed: ${debt.interest_rate}% annually</p>` : ''}
+              <p class="text-xs text-yellow-500 mt-1">${dragonType.description}</p>
             </div>
             <div class="text-right">
-              <div class="text-2xl font-bold text-red-400">$${debt.current_amount.toFixed(2)}</div>
-              <div class="text-sm opacity-70">of $${debt.original_amount.toFixed(2)}</div>
+              <div class="text-3xl font-bold text-red-400">${debt.current_amount.toFixed(0)} 🪙</div>
+              <div class="text-sm text-yellow-500">of ${debt.original_amount.toFixed(0)} 🪙 total</div>
             </div>
           </div>
           
           <div class="mb-4">
-            <div class="flex justify-between text-sm mb-1">
-              <span>Progress</span>
-              <span>${progress.toFixed(1)}% paid off</span>
+            <div class="flex justify-between text-sm mb-2">
+              <span class="text-yellow-300">Dragon's Health</span>
+              <span class="text-yellow-400">${(100 - progress).toFixed(1)}% remaining</span>
             </div>
-            <div class="w-full bg-gray-700 rounded-full h-2">
-              <div class="bg-red-500 h-2 rounded-full transition-all" style="width: ${progress}%"></div>
+            <div class="w-full bg-red-900 rounded-full h-3 border border-red-600">
+              <div class="bg-red-500 h-3 rounded-full transition-all" style="width: ${100 - progress}%"></div>
             </div>
           </div>
           
           <button onclick="app.quickPayDebt(${debt.id}, ${debt.minimum_payment})" 
-                  class="w-full bg-red-600 hover:bg-red-700 py-2 rounded font-medium transition-all">
-            Pay $${debt.minimum_payment.toFixed(2)}
+                  class="w-full medieval-btn py-3 rounded-lg font-medium transition-all">
+            ⚔️ Attack for ${debt.minimum_payment.toFixed(0)} 🪙
           </button>
         </div>
       `;
     }).join('');
+  }
+
+  getDragonType(amount) {
+    if (amount < 500) return { icon: '🐲', description: 'A small but fierce debt dragon' };
+    if (amount < 2000) return { icon: '🐉', description: 'A dangerous debt dragon hoarding your gold' };
+    if (amount < 10000) return { icon: '🔥', description: 'A mighty debt dragon breathing financial fire' };
+    return { icon: '👹', description: 'An ancient debt dragon of legendary power' };
   }
 
   updateAchievementsDisplay() {
@@ -254,22 +498,23 @@ class BudgetApp {
     if (!container) return;
 
     container.innerHTML = this.achievements.map(achievement => `
-      <div class="glass rounded-lg p-6 ${achievement.earned ? 'border-yellow-400' : 'opacity-75'}">
+      <div class="glass rounded-lg p-6 ${achievement.earned ? 'border-2 border-yellow-400' : 'opacity-75 border border-gray-600'} 
+           transition-all hover:scale-105">
         <div class="text-center">
-          <div class="text-4xl mb-3">${achievement.icon || '🏆'}</div>
-          <h3 class="font-bold text-lg mb-2">${achievement.name}</h3>
-          <p class="text-sm opacity-80 mb-4">${achievement.description}</p>
+          <div class="text-5xl mb-4">${achievement.icon || '🏆'}</div>
+          <h3 class="medieval-title font-bold text-lg mb-2 ${achievement.earned ? 'gold-text' : 'text-gray-400'}">${achievement.name}</h3>
+          <p class="text-sm text-yellow-400 mb-4">${achievement.description}</p>
           
-          <div class="space-y-2 text-xs">
-            ${achievement.level_requirement > 1 ? `<div>Level ${achievement.level_requirement} required</div>` : ''}
-            ${achievement.savings_requirement > 0 ? `<div>Save $${achievement.savings_requirement}</div>` : ''}
-            ${achievement.debt_payment_requirement > 0 ? `<div>Pay $${achievement.debt_payment_requirement} debt</div>` : ''}
+          <div class="space-y-2 text-xs text-yellow-500">
+            ${achievement.level_requirement > 1 ? `<div>🏰 Rank ${achievement.level_requirement} required</div>` : ''}
+            ${achievement.savings_requirement > 0 ? `<div>💎 Save ${achievement.savings_requirement} gold</div>` : ''}
+            ${achievement.debt_payment_requirement > 0 ? `<div>⚔️ Slay ${achievement.debt_payment_requirement} gold worth of dragons</div>` : ''}
           </div>
           
           <div class="mt-4">
             ${achievement.earned ? 
-              '<span class="bg-yellow-600 px-3 py-1 rounded-full text-xs font-bold">EARNED</span>' :
-              '<span class="bg-gray-600 px-3 py-1 rounded-full text-xs">Locked</span>'
+              '<span class="bg-yellow-600 px-4 py-2 rounded-full text-sm font-bold text-black">🏆 EARNED</span>' :
+              '<span class="bg-gray-600 px-4 py-2 rounded-full text-sm">🔒 Locked</span>'
             }
           </div>
         </div>
@@ -281,9 +526,9 @@ class BudgetApp {
     const select = document.getElementById('debtSelect');
     if (!select) return;
 
-    select.innerHTML = '<option value="">Select debt to pay...</option>' +
+    select.innerHTML = '<option value="">Select dragon to attack...</option>' +
       this.debts.map(debt => 
-        `<option value="${debt.id}">${debt.name} - $${debt.current_amount.toFixed(2)}</option>`
+        `<option value="${debt.id}">${debt.name} Dragon - ${debt.current_amount.toFixed(0)} 🪙</option>`
       ).join('');
   }
 
@@ -296,9 +541,9 @@ class BudgetApp {
     }
   }
 
-  formatAmount(amount, type) {
-    const prefix = (type === 'expense' || type === 'debt_payment') ? '-$' : '+$';
-    return prefix + Math.abs(amount).toFixed(2);
+  formatMedievalAmount(amount, type) {
+    const prefix = (type === 'expense' || type === 'debt_payment') ? '-' : '+';
+    return prefix + Math.abs(amount).toFixed(0) + ' 🪙';
   }
 
   setupEventListeners() {
@@ -334,14 +579,14 @@ class BudgetApp {
   switchTab(tab) {
     // Update tab buttons
     document.querySelectorAll('.tab-button').forEach(btn => {
-      btn.classList.remove('active', 'bg-blue-600');
-      btn.classList.add('bg-transparent', 'opacity-70');
+      btn.classList.remove('active');
+      btn.style.background = '';
     });
 
     const activeBtn = document.querySelector(`[data-tab="${tab}"]`);
     if (activeBtn) {
-      activeBtn.classList.add('active', 'bg-blue-600');
-      activeBtn.classList.remove('bg-transparent', 'opacity-70');
+      activeBtn.classList.add('active');
+      activeBtn.style.background = 'linear-gradient(145deg, #DAA520, #B8860B)';
     }
 
     // Show/hide tab content
@@ -359,7 +604,8 @@ class BudgetApp {
 
   setDefaultDates() {
     const today = new Date().toISOString().split('T')[0];
-    document.getElementById('entryDate').value = today;
+    const dateInput = document.getElementById('entryDate');
+    if (dateInput) dateInput.value = today;
   }
 
   showAddEntryModal(type) {
@@ -370,9 +616,9 @@ class BudgetApp {
 
     // Set modal title and type
     const titles = {
-      income: 'Add Income',
-      expense: 'Add Expense', 
-      savings: 'Add Savings'
+      income: '⚔️ Record Gold Earned',
+      expense: '🛒 Record Gold Spent', 
+      savings: '💎 Store Treasure'
     };
     
     title.textContent = titles[type] || 'Add Entry';
@@ -433,14 +679,15 @@ class BudgetApp {
       // Reload data
       await Promise.all([
         this.loadUserStats(),
-        this.loadDashboardData()
+        this.loadDashboardData(),
+        this.checkForNewRewards()
       ]);
       
       this.closeModal('addEntryModal');
-      this.showSuccess('Entry added successfully!');
+      this.showSuccess('Quest completed successfully! Experience gained! ⚔️');
     } catch (error) {
       console.error('Error adding entry:', error);
-      this.showError('Failed to add entry. Please try again.');
+      this.showError('Quest failed! Please try again, brave adventurer.');
     }
   }
 
@@ -458,22 +705,23 @@ class BudgetApp {
       const response = await axios.post('/api/pay-debt', payment);
       
       if (response.data.paidOff) {
-        this.showSuccess('Congratulations! Debt paid off completely! 🎉');
+        this.showSuccess('🐉 DRAGON SLAIN! The beast has been vanquished! Your legend grows! 🏆');
       } else {
-        this.showSuccess('Payment recorded successfully!');
+        this.showSuccess('⚔️ You struck a mighty blow against the dragon! Keep fighting!');
       }
       
       // Reload data
       await Promise.all([
         this.loadUserStats(),
         this.loadDashboardData(),
-        this.loadDebts()
+        this.loadDebts(),
+        this.checkForNewRewards()
       ]);
       
       this.closeModal('payDebtModal');
     } catch (error) {
       console.error('Error paying debt:', error);
-      this.showError('Failed to process payment. Please try again.');
+      this.showError('The dragon dodged your attack! Try again, warrior!');
     }
   }
 
@@ -488,20 +736,21 @@ class BudgetApp {
       const response = await axios.post('/api/pay-debt', payment);
       
       if (response.data.paidOff) {
-        this.showSuccess('Congratulations! Debt paid off completely! 🎉');
+        this.showSuccess('🐉 DRAGON SLAIN COMPLETELY! Victory is yours! 🏆');
       } else {
-        this.showSuccess('Payment recorded successfully!');
+        this.showSuccess('⚔️ Successful dragon attack! The beast weakens!');
       }
       
       // Reload data
       await Promise.all([
         this.loadUserStats(),
         this.loadDashboardData(),
-        this.loadDebts()
+        this.loadDebts(),
+        this.checkForNewRewards()
       ]);
     } catch (error) {
       console.error('Error paying debt:', error);
-      this.showError('Failed to process payment. Please try again.');
+      this.showError('Your attack missed! Try again, brave warrior!');
     }
   }
 
@@ -511,7 +760,7 @@ class BudgetApp {
     const rewardText = document.getElementById('levelUpReward');
     
     levelText.textContent = `You reached Level ${newLevel}!`;
-    rewardText.textContent = 'Your financial discipline is paying off!';
+    rewardText.textContent = 'Your reputation grows throughout the realm!';
     
     modal.classList.remove('hidden');
     modal.classList.add('flex');
@@ -522,24 +771,41 @@ class BudgetApp {
     }, 1000);
   }
 
-  showSuccess(message) {
-    // Simple toast notification
+  showNewRewardsModal(rewards) {
+    // Create a simple notification for new rewards
     const toast = document.createElement('div');
-    toast.className = 'fixed top-4 right-4 bg-green-600 text-white px-6 py-3 rounded-lg z-50 shadow-lg';
-    toast.textContent = message;
+    toast.className = 'fixed top-20 right-4 glass-dark rounded-lg p-4 z-50 shadow-lg max-w-sm';
+    toast.innerHTML = `
+      <div class="text-center">
+        <div class="text-2xl mb-2">🎁</div>
+        <h3 class="medieval-title font-bold text-yellow-400">New Rewards Unlocked!</h3>
+        <p class="text-yellow-300 text-sm mt-2">Check your Character tab to see your new equipment!</p>
+        <div class="mt-3">
+          ${rewards.map(reward => `<div class="text-xs text-yellow-500">${reward.display_name}</div>`).join('')}
+        </div>
+      </div>
+    `;
     document.body.appendChild(toast);
     
-    setTimeout(() => toast.remove(), 3000);
+    setTimeout(() => toast.remove(), 8000);
   }
 
-  showError(message) {
-    // Simple error toast notification
+  showSuccess(message) {
     const toast = document.createElement('div');
-    toast.className = 'fixed top-4 right-4 bg-red-600 text-white px-6 py-3 rounded-lg z-50 shadow-lg';
+    toast.className = 'fixed top-4 right-4 bg-green-600 text-white px-6 py-3 rounded-lg z-50 shadow-lg max-w-sm';
     toast.textContent = message;
     document.body.appendChild(toast);
     
     setTimeout(() => toast.remove(), 5000);
+  }
+
+  showError(message) {
+    const toast = document.createElement('div');
+    toast.className = 'fixed top-4 right-4 bg-red-600 text-white px-6 py-3 rounded-lg z-50 shadow-lg max-w-sm';
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    
+    setTimeout(() => toast.remove(), 6000);
   }
 }
 
@@ -559,24 +825,25 @@ function closeModal(modalId) {
 // Initialize the app when the page loads
 let app;
 document.addEventListener('DOMContentLoaded', () => {
-  app = new BudgetApp();
+  app = new CoinQuestRPG();
 });
 
 // Add CSS for active tab styling
 const style = document.createElement('style');
 style.textContent = `
   .tab-button.active {
-    background-color: rgb(37 99 235) !important;
-    opacity: 1 !important;
+    background: linear-gradient(145deg, #DAA520, #B8860B) !important;
+    color: #000 !important;
+    font-weight: bold !important;
   }
   
   .tab-button:not(.active) {
-    background-color: transparent !important;
-    opacity: 0.7 !important;
+    background: linear-gradient(145deg, #8B4513, #654321) !important;
   }
   
   .tab-button:hover {
-    opacity: 1 !important;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6) !important;
   }
 `;
 document.head.appendChild(style);
