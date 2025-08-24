@@ -730,11 +730,6 @@ class CoinQuestRPG {
       this.hideLoading();
       console.error('Error cancelling subscription:', error);
       this.showError('Failed to cancel subscription. Please contact support.');
-    }
-        
-        // Refresh data
-        await this.loadUserStats();
-      }
     } catch (error) {
       console.error('Subscription error:', error);
       this.hideLoading();

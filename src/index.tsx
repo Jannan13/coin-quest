@@ -1334,7 +1334,7 @@ app.get('/app', (c) => {
     <body class="medieval-background min-h-screen text-yellow-100 overflow-x-hidden">
         <!-- Video Background -->
         <video id="videoBackground" class="video-background" autoplay muted loop>
-          <source src="/static/videos/medieval_village.mp4" type="video/mp4">
+          <!-- Video background disabled for now -->
           <!-- Fallback medieval background -->
         </video>
 
