@@ -10,7 +10,7 @@
     {
       "binding": "DB",
       "database_name": "cointquest-org-production",
-      "database_id": "REPLACE-WITH-REAL-DATABASE-ID-FROM-DASHBOARD"
+      "database_id": "a2c7879c-768e-4802-829b-1087389b0768"
     }
   ]
   // "ai": {
