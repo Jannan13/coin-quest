@@ -129,11 +129,8 @@ class CoinQuestRPG {
   }
 
   async initializeDatabase() {
-    try {
-      console.log('⚔️ Initializing medieval database...');
-    } catch (error) {
-      console.error('Database initialization error:', error);
-    }
+    console.log('⚔️ Initializing medieval database...');
+    // Database initialization is handled server-side
   }
 
   async loadUserStats() {
@@ -730,10 +727,6 @@ class CoinQuestRPG {
       this.hideLoading();
       console.error('Error cancelling subscription:', error);
       this.showError('Failed to cancel subscription. Please contact support.');
-    } catch (error) {
-      console.error('Subscription error:', error);
-      this.hideLoading();
-      this.showError('Subscription failed. Please try again.');
     }
   }
 
