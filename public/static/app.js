@@ -975,6 +975,13 @@ class CoinQuestRPG {
     }
 
     this.currentTab = tab;
+
+    // Load tab-specific data
+    if (tab === 'character' && !this.rewards) {
+      this.loadRewards();
+    } else if (tab === 'achievements' && (!this.achievements || this.achievements.length === 0)) {
+      this.loadData(); // This will load achievements
+    }
   }
 
   setDefaultDates() {
@@ -1188,6 +1195,402 @@ class CoinQuestRPG {
     
     setTimeout(() => toast.remove(), 6000);
   }
+
+  // ===============================
+  // REWARDS SYSTEM METHODS
+  // ===============================
+
+  async loadRewards() {
+    try {
+      const response = await this.makeAuthenticatedRequest(`/api/rewards/${this.currentUser.id}`);
+      this.rewards = response.rewards;
+      this.rewardStats = response.stats;
+      
+      this.updateRewardsDisplay();
+      this.setupRewardEventListeners();
+      
+      // Also load collections
+      await this.loadCollections();
+    } catch (error) {
+      console.error('Error loading rewards:', error);
+      this.showError('Failed to load rewards');
+    }
+  }
+
+  async loadCollections() {
+    try {
+      const response = await this.makeAuthenticatedRequest(`/api/collections/${this.currentUser.id}`);
+      this.collections = response.collections;
+      this.updateCollectionsDisplay();
+    } catch (error) {
+      console.error('Error loading collections:', error);
+    }
+  }
+
+  updateRewardsDisplay() {
+    // Update stats
+    document.getElementById('totalRewards').textContent = this.rewardStats.total;
+    document.getElementById('unlockedRewards').textContent = this.rewardStats.unlocked;
+    document.getElementById('equippedRewards').textContent = this.rewardStats.equipped;
+    document.getElementById('availableRewards').textContent = this.rewardStats.available;
+    document.getElementById('lockedRewards').textContent = this.rewardStats.locked;
+
+    // Update progress display
+    document.getElementById('progressLevel').textContent = `Level ${this.currentUser.current_level}`;
+    document.getElementById('progressTitle').textContent = this.currentUser.character_title || 'Peasant Coin-Counter';
+    document.getElementById('progressSavings').textContent = `${this.currentUser.total_saved || 0} 🪙`;
+    document.getElementById('progressDebtPaid').textContent = `${this.currentUser.total_debt_paid || 0} 🪙`;
+
+    // Display rewards based on current filters
+    this.filterAndDisplayRewards();
+  }
+
+  updateCollectionsDisplay() {
+    const container = document.getElementById('collectionsProgress');
+    if (!container) return;
+
+    if (!this.collections || this.collections.length === 0) {
+      container.innerHTML = '<div class="text-center text-yellow-400 text-sm">No collections available</div>';
+      return;
+    }
+
+    container.innerHTML = this.collections.map(collection => {
+      const progress = collection.total_rewards > 0 ? 
+        (collection.unlocked_rewards / collection.total_rewards) * 100 : 0;
+      
+      return `
+        <div class="collection-item p-3 glass-dark rounded cursor-pointer transition-all hover:bg-yellow-600/10" 
+             onclick="app.showCollectionDetails(${collection.id})">
+          <div class="flex justify-between items-center mb-2">
+            <span class="text-sm font-bold text-yellow-400">${collection.display_name}</span>
+            <span class="text-xs ${collection.completion_status === 'completed' ? 'text-green-400' : 'text-yellow-500'}">
+              ${collection.unlocked_rewards}/${collection.total_rewards}
+            </span>
+          </div>
+          <div class="w-full bg-gray-700 rounded-full h-2">
+            <div class="bg-gradient-to-r from-yellow-600 to-yellow-400 h-2 rounded-full transition-all" 
+                 style="width: ${progress}%"></div>
+          </div>
+          ${collection.completion_status === 'completed' ? 
+            '<div class="text-xs text-green-400 mt-1">✨ Completed!</div>' : ''
+          }
+        </div>
+      `;
+    }).join('');
+  }
+
+  filterAndDisplayRewards() {
+    const activeCategory = document.querySelector('.reward-category-tab.active')?.dataset.category || 'all';
+    const activeRarity = document.querySelector('.rarity-filter.active')?.dataset.rarity || 'all';
+    
+    let filteredRewards = [];
+
+    if (activeCategory === 'all') {
+      // Show all rewards from all categories
+      Object.keys(this.rewards).forEach(category => {
+        Object.keys(this.rewards[category]).forEach(rarity => {
+          filteredRewards.push(...this.rewards[category][rarity]);
+        });
+      });
+    } else {
+      // Show rewards from specific category
+      if (this.rewards[activeCategory]) {
+        Object.keys(this.rewards[activeCategory]).forEach(rarity => {
+          filteredRewards.push(...this.rewards[activeCategory][rarity]);
+        });
+      }
+    }
+
+    // Filter by rarity
+    if (activeRarity !== 'all') {
+      filteredRewards = filteredRewards.filter(reward => reward.rarity === activeRarity);
+    }
+
+    // Sort by unlock status, then by level, then by rarity
+    const rarityOrder = { common: 1, rare: 2, epic: 3, legendary: 4, mythic: 5 };
+    filteredRewards.sort((a, b) => {
+      // First by unlock status (unlocked first)
+      if (a.unlock_status !== b.unlock_status) {
+        if (a.unlock_status === 'unlocked') return -1;
+        if (b.unlock_status === 'unlocked') return 1;
+        if (a.unlock_status === 'available') return -1;
+        if (b.unlock_status === 'available') return 1;
+      }
+      
+      // Then by level
+      if (a.unlock_level !== b.unlock_level) {
+        return a.unlock_level - b.unlock_level;
+      }
+      
+      // Then by rarity
+      return rarityOrder[a.rarity] - rarityOrder[b.rarity];
+    });
+
+    this.displayRewardsGrid(filteredRewards);
+  }
+
+  displayRewardsGrid(rewards) {
+    const container = document.getElementById('rewardsGrid');
+    if (!container) return;
+
+    if (rewards.length === 0) {
+      container.innerHTML = `
+        <div class="col-span-full text-center text-yellow-400 py-8">
+          <i class="fas fa-search text-2xl mb-2"></i>
+          <div>No rewards match your current filters</div>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = rewards.map(reward => {
+      const icon = this.getRewardIcon(reward.type, reward.name);
+      const rarityClass = this.getRarityClass(reward.rarity);
+      const statusClass = this.getStatusClass(reward.unlock_status);
+      
+      return `
+        <div class="reward-item ${rarityClass} ${statusClass} p-3 rounded-lg border-2 cursor-pointer transition-all hover:scale-105"
+             onclick="app.showRewardDetails('${reward.id}')">
+          <div class="text-center">
+            <div class="text-2xl mb-2">${icon}</div>
+            <div class="text-xs font-bold truncate" title="${reward.display_name}">${reward.display_name}</div>
+            <div class="text-xs text-yellow-500 truncate">${reward.rarity}</div>
+            ${reward.unlock_status === 'unlocked' ? 
+              `<div class="text-xs mt-1">
+                ${reward.is_equipped ? '<span class="text-green-400">✅ Equipped</span>' : '<span class="text-blue-400">📦 Owned</span>'}
+              </div>` : 
+              `<div class="text-xs mt-1 text-gray-400">
+                ${reward.unlock_status === 'available' ? '🔓 Available' : '🔒 Locked'}
+              </div>`
+            }
+            ${reward.unlock_level > 1 ? `<div class="text-xs text-yellow-600">Lv.${reward.unlock_level}</div>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  getRewardIcon(type, name) {
+    // Map reward names to emojis - this is a simplified version
+    const iconMap = {
+      helmet: { 
+        leather_cap: '🧢', iron_helm: '⛑️', steel_crown: '👑', dragon_helm: '🐲', 
+        elder_circlet: '✨', straw_hat: '👒', cloth_hood: '🎭'
+      },
+      armor: { 
+        cloth_rags: '👔', leather_vest: '🦺', chainmail: '🛡️', plate_armor: '⚔️', 
+        dragon_scale: '🐉', elder_robes: '🧙'
+      },
+      weapon: { 
+        wooden_stick: '🏏', copper_dagger: '🗡️', iron_sword: '⚔️', steel_axe: '🪓', 
+        dragon_blade: '🐲', elder_staff: '🔮', rusty_spoon: '🥄'
+      },
+      shield: { 
+        wooden_buckler: '🛡️', iron_shield: '🛡️', dragon_shield: '🐲'
+      },
+      accessory: { 
+        coin_pouch: '💰', golden_ring: '💍', elder_amulet: '🔮'
+      },
+      background: { 
+        tavern: '🏠', market: '🏪', castle: '🏰', dragon_lair: '🐉'
+      },
+      title: '📜'
+    };
+
+    if (type === 'title') return iconMap.title;
+    return iconMap[type]?.[name] || this.getDefaultIcon(type);
+  }
+
+  getDefaultIcon(type) {
+    const defaults = {
+      helmet: '⛑️', armor: '👕', weapon: '🗡️', shield: '🛡️', 
+      accessory: '💍', background: '🏞️', title: '📜'
+    };
+    return defaults[type] || '🏰';
+  }
+
+  getRarityClass(rarity) {
+    const classes = {
+      common: 'rarity-common border-gray-400',
+      rare: 'rarity-rare border-green-400',
+      epic: 'rarity-epic border-blue-400', 
+      legendary: 'rarity-legendary border-purple-400',
+      mythic: 'rarity-mythic border-red-400'
+    };
+    return classes[rarity] || 'border-gray-400';
+  }
+
+  getStatusClass(status) {
+    const classes = {
+      unlocked: 'bg-green-900/30',
+      available: 'bg-blue-900/30', 
+      locked: 'bg-gray-900/30 opacity-75'
+    };
+    return classes[status] || 'bg-gray-900/30';
+  }
+
+  setupRewardEventListeners() {
+    // Category tab switching
+    document.querySelectorAll('.reward-category-tab').forEach(tab => {
+      tab.addEventListener('click', (e) => {
+        document.querySelectorAll('.reward-category-tab').forEach(t => t.classList.remove('active'));
+        e.target.classList.add('active');
+        this.filterAndDisplayRewards();
+      });
+    });
+
+    // Rarity filtering
+    document.querySelectorAll('.rarity-filter').forEach(filter => {
+      filter.addEventListener('click', (e) => {
+        document.querySelectorAll('.rarity-filter').forEach(f => f.classList.remove('active'));
+        e.target.classList.add('active');
+        this.filterAndDisplayRewards();
+      });
+    });
+  }
+
+  showRewardDetails(rewardId) {
+    const reward = this.findRewardById(rewardId);
+    if (!reward) return;
+
+    const modal = document.getElementById('rewardModal');
+    const title = document.getElementById('rewardModalTitle');
+    const rarity = document.getElementById('rewardModalRarity');
+    const icon = document.getElementById('rewardModalIcon');
+    const description = document.getElementById('rewardModalDescription');
+    const requirements = document.getElementById('rewardModalRequirements');
+    const button = document.getElementById('rewardModalButton');
+
+    title.textContent = reward.display_name;
+    rarity.textContent = reward.rarity.toUpperCase();
+    rarity.className = `text-sm ${this.getRarityTextClass(reward.rarity)}`;
+    
+    icon.textContent = this.getRewardIcon(reward.type, reward.name);
+    icon.className = `reward-icon-large mx-auto mb-3 w-16 h-16 flex items-center justify-center text-4xl rounded-lg border-2 ${this.getRarityClass(reward.rarity)}`;
+    
+    description.textContent = reward.description || 'A legendary item of great power and prestige.';
+
+    // Show requirements
+    let requirementsHTML = '';
+    if (reward.unlock_level > 1) {
+      requirementsHTML += `<div class="flex justify-between"><span>Required Level:</span><span class="text-yellow-400">Level ${reward.unlock_level}</span></div>`;
+    }
+    if (reward.unlock_savings_requirement > 0) {
+      requirementsHTML += `<div class="flex justify-between"><span>Gold Saved:</span><span class="text-green-400">${reward.unlock_savings_requirement} 🪙</span></div>`;
+    }
+    if (reward.unlock_debt_payment_requirement > 0) {
+      requirementsHTML += `<div class="flex justify-between"><span>Debt Slain:</span><span class="text-red-400">${reward.unlock_debt_payment_requirement} 🪙</span></div>`;
+    }
+    requirements.innerHTML = requirementsHTML;
+
+    // Configure button
+    if (reward.unlock_status === 'unlocked') {
+      if (reward.is_equipped) {
+        button.textContent = '✅ Currently Equipped';
+        button.disabled = true;
+        button.className = 'bg-green-600 px-6 py-3 rounded-lg font-bold opacity-50 cursor-not-allowed';
+      } else {
+        button.textContent = '⚔️ Equip Item';
+        button.disabled = false;
+        button.className = 'medieval-btn px-6 py-3 rounded-lg font-bold transition-all';
+        button.onclick = () => this.equipReward(reward.id);
+      }
+    } else if (reward.unlock_status === 'available') {
+      button.textContent = '🔓 Unlock Now';
+      button.disabled = false;
+      button.className = 'bg-blue-600 hover:bg-blue-700 px-6 py-3 rounded-lg font-bold transition-all';
+      button.onclick = () => this.unlockReward(reward.id);
+    } else {
+      button.textContent = '🔒 Requirements Not Met';
+      button.disabled = true;
+      button.className = 'bg-gray-600 px-6 py-3 rounded-lg font-bold opacity-50 cursor-not-allowed';
+    }
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+  }
+
+  findRewardById(rewardId) {
+    for (const category of Object.keys(this.rewards)) {
+      for (const rarity of Object.keys(this.rewards[category])) {
+        const reward = this.rewards[category][rarity].find(r => r.id == rewardId);
+        if (reward) return reward;
+      }
+    }
+    return null;
+  }
+
+  getRarityTextClass(rarity) {
+    const classes = {
+      common: 'text-gray-300',
+      rare: 'text-green-400',
+      epic: 'text-blue-400', 
+      legendary: 'text-purple-400',
+      mythic: 'text-red-400'
+    };
+    return classes[rarity] || 'text-gray-300';
+  }
+
+  async equipReward(rewardId) {
+    try {
+      const response = await this.makeAuthenticatedRequest('/api/equip-reward', {
+        method: 'POST',
+        body: JSON.stringify({
+          user_id: this.currentUser.id,
+          reward_id: rewardId
+        })
+      });
+
+      if (response.success) {
+        this.showSuccess('Item equipped successfully! ⚔️');
+        await this.loadRewards(); // Reload to update display
+        this.closeRewardModal();
+      }
+    } catch (error) {
+      console.error('Error equipping reward:', error);
+      this.showError('Failed to equip item');
+    }
+  }
+
+  async unlockReward(rewardId) {
+    try {
+      // The reward should auto-unlock when requirements are met
+      // This triggers the check-rewards endpoint
+      const response = await this.makeAuthenticatedRequest('/api/check-rewards', {
+        method: 'POST',
+        body: JSON.stringify({
+          user_id: this.currentUser.id
+        })
+      });
+
+      if (response.newRewards && response.newRewards.length > 0) {
+        const unlockedReward = response.newRewards.find(r => r.id == rewardId);
+        if (unlockedReward) {
+          this.showSuccess(`🎉 Unlocked: ${unlockedReward.display_name}!`);
+          await this.loadRewards(); // Reload to update display
+          this.closeRewardModal();
+        }
+      }
+    } catch (error) {
+      console.error('Error unlocking reward:', error);
+      this.showError('Failed to unlock reward');
+    }
+  }
+
+  closeRewardModal() {
+    const modal = document.getElementById('rewardModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+  }
+
+  showCollectionDetails(collectionId) {
+    // This would show a detailed view of the collection
+    // For now, we'll just show a simple alert
+    const collection = this.collections.find(c => c.id === collectionId);
+    if (collection) {
+      this.showSuccess(`Collection: ${collection.display_name} - ${collection.unlocked_rewards}/${collection.total_rewards} complete`);
+    }
+  }
 }
 
 // Global functions for button clicks
@@ -1203,13 +1606,17 @@ function closeModal(modalId) {
   app.closeModal(modalId);
 }
 
+function closeRewardModal() {
+  app.closeRewardModal();
+}
+
 // Initialize the app when the page loads
 let app;
 document.addEventListener('DOMContentLoaded', () => {
   app = new CoinQuestRPG();
 });
 
-// Add CSS for active tab styling
+// Add CSS for active tab styling and rewards system
 const style = document.createElement('style');
 style.textContent = `
   .tab-button.active {
@@ -1225,6 +1632,69 @@ style.textContent = `
   .tab-button:hover {
     transform: translateY(-2px) !important;
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6) !important;
+  }
+  
+  /* Rewards System Styles */
+  .reward-category-tab.active {
+    background: linear-gradient(145deg, #DAA520, #B8860B) !important;
+    color: #000 !important;
+    font-weight: bold !important;
+  }
+  
+  .reward-category-tab:not(.active) {
+    background: rgba(139, 69, 19, 0.5) !important;
+    color: #DAA520 !important;
+  }
+  
+  .rarity-filter.active {
+    background: rgba(218, 165, 32, 0.3) !important;
+    transform: scale(1.05);
+  }
+  
+  .reward-item:hover {
+    transform: scale(1.1) !important;
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.7) !important;
+  }
+  
+  .rarity-common { 
+    border-color: #9CA3AF !important; 
+    background: rgba(156, 163, 175, 0.1);
+  }
+  .rarity-rare { 
+    border-color: #10B981 !important; 
+    background: rgba(16, 185, 129, 0.1);
+    box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
+  }
+  .rarity-epic { 
+    border-color: #3B82F6 !important; 
+    background: rgba(59, 130, 246, 0.1);
+    box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);
+  }
+  .rarity-legendary { 
+    border-color: #8B5CF6 !important; 
+    background: rgba(139, 92, 246, 0.1);
+    box-shadow: 0 0 20px rgba(139, 92, 246, 0.5);
+  }
+  .rarity-mythic { 
+    border-color: #EF4444 !important; 
+    background: rgba(239, 68, 68, 0.1);
+    box-shadow: 0 0 25px rgba(239, 68, 68, 0.6);
+    animation: mythic-glow 2s ease-in-out infinite alternate;
+  }
+  
+  @keyframes mythic-glow {
+    from { box-shadow: 0 0 20px rgba(239, 68, 68, 0.6); }
+    to { box-shadow: 0 0 30px rgba(239, 68, 68, 0.9); }
+  }
+  
+  .collection-item:hover {
+    background: rgba(218, 165, 32, 0.2) !important;
+    transform: translateX(5px);
+  }
+  
+  .reward-icon-large {
+    background: rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(10px);
   }
 `;
 document.head.appendChild(style);

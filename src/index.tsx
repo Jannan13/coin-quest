@@ -669,6 +669,158 @@ app.post('/api/pay-debt', authMiddleware, async (c) => {
   }
 });
 
+// Get all rewards for a user (unlocked, locked, equipped status)
+app.get('/api/rewards/:userId', authMiddleware, async (c) => {
+  const { env } = c;
+  const userId = c.req.param('userId');
+
+  try {
+    // Get user stats for unlock checking
+    const user = await env.DB.prepare(`
+      SELECT current_level, total_saved, total_debt_paid 
+      FROM users WHERE id = ?
+    `).bind(userId).first();
+
+    if (!user) {
+      return c.json({ error: 'User not found' }, 404);
+    }
+
+    // Get all rewards with unlock status and user ownership
+    const rewards = await env.DB.prepare(`
+      SELECT 
+        cr.*,
+        ur.unlocked_at,
+        ur.is_equipped,
+        CASE 
+          WHEN ur.user_id IS NOT NULL THEN 'unlocked'
+          WHEN cr.unlock_level <= ? 
+            AND cr.unlock_savings_requirement <= ?
+            AND cr.unlock_debt_payment_requirement <= ? THEN 'available'
+          ELSE 'locked'
+        END as unlock_status
+      FROM character_rewards cr
+      LEFT JOIN user_rewards ur ON cr.id = ur.reward_id AND ur.user_id = ?
+      ORDER BY cr.type, cr.unlock_level, cr.rarity
+    `).bind(user.current_level, user.total_saved || 0, user.total_debt_paid || 0, userId).all();
+
+    // Group rewards by type and rarity
+    const groupedRewards = {
+      helmet: { common: [], rare: [], epic: [], legendary: [], mythic: [] },
+      armor: { common: [], rare: [], epic: [], legendary: [], mythic: [] },
+      weapon: { common: [], rare: [], epic: [], legendary: [], mythic: [] },
+      shield: { common: [], rare: [], epic: [], legendary: [], mythic: [] },
+      accessory: { common: [], rare: [], epic: [], legendary: [], mythic: [] },
+      background: { common: [], rare: [], epic: [], legendary: [], mythic: [] },
+      title: { common: [], rare: [], epic: [], legendary: [], mythic: [] }
+    };
+
+    // Count stats
+    const stats = {
+      total: 0,
+      unlocked: 0,
+      equipped: 0,
+      available: 0,
+      locked: 0,
+      byType: {},
+      byRarity: { common: 0, rare: 0, epic: 0, legendary: 0, mythic: 0 }
+    };
+
+    for (const reward of rewards.results) {
+      // Add to grouped structure
+      if (groupedRewards[reward.type]) {
+        groupedRewards[reward.type][reward.rarity].push(reward);
+      }
+
+      // Update stats
+      stats.total++;
+      stats.byRarity[reward.rarity]++;
+      
+      if (!stats.byType[reward.type]) {
+        stats.byType[reward.type] = { total: 0, unlocked: 0, equipped: 0 };
+      }
+      stats.byType[reward.type].total++;
+
+      if (reward.unlock_status === 'unlocked') {
+        stats.unlocked++;
+        stats.byType[reward.type].unlocked++;
+        if (reward.is_equipped) {
+          stats.equipped++;
+          stats.byType[reward.type].equipped++;
+        }
+      } else if (reward.unlock_status === 'available') {
+        stats.available++;
+      } else {
+        stats.locked++;
+      }
+    }
+
+    return c.json({ 
+      rewards: groupedRewards,
+      stats,
+      userLevel: user.current_level,
+      userSavings: user.total_saved || 0,
+      userDebtPaid: user.total_debt_paid || 0
+    });
+  } catch (error) {
+    console.error('Error fetching rewards:', error);
+    return c.json({ error: 'Internal server error' }, 500);
+  }
+});
+
+// Get reward collections and completion status
+app.get('/api/collections/:userId', authMiddleware, async (c) => {
+  const { env } = c;
+  const userId = c.req.param('userId');
+
+  try {
+    // Get all collections with reward details and user progress
+    const collections = await env.DB.prepare(`
+      SELECT 
+        rc.*,
+        COUNT(cr.id) as total_rewards,
+        COUNT(ur.user_id) as unlocked_rewards,
+        CASE 
+          WHEN COUNT(cr.id) = COUNT(ur.user_id) THEN 'completed'
+          WHEN COUNT(ur.user_id) > 0 THEN 'in_progress'
+          ELSE 'not_started'
+        END as completion_status
+      FROM reward_collections rc
+      LEFT JOIN collection_rewards cr ON rc.id = cr.collection_id
+      LEFT JOIN character_rewards ch ON cr.reward_id = ch.id
+      LEFT JOIN user_rewards ur ON ch.id = ur.reward_id AND ur.user_id = ?
+      WHERE rc.is_active = 1
+      GROUP BY rc.id
+      ORDER BY rc.collection_type, rc.name
+    `).bind(userId).all();
+
+    // Get detailed collection data
+    const detailedCollections = [];
+    for (const collection of collections.results) {
+      const collectionRewards = await env.DB.prepare(`
+        SELECT 
+          cr.*,
+          ch.name, ch.display_name, ch.description, ch.rarity, ch.type,
+          ur.unlocked_at, ur.is_equipped
+        FROM collection_rewards cr
+        JOIN character_rewards ch ON cr.reward_id = ch.id
+        LEFT JOIN user_rewards ur ON ch.id = ur.reward_id AND ur.user_id = ?
+        WHERE cr.collection_id = ?
+        ORDER BY cr.sort_order
+      `).bind(userId, collection.id).all();
+
+      detailedCollections.push({
+        ...collection,
+        rewards: collectionRewards.results
+      });
+    }
+
+    return c.json({ collections: detailedCollections });
+  } catch (error) {
+    console.error('Error fetching collections:', error);
+    return c.json({ error: 'Internal server error' }, 500);
+  }
+});
+
 // ===============================
 // MAIN APP ROUTES
 // ===============================
@@ -761,77 +913,115 @@ app.get('/', (c) => {
               </p>
             </div>
 
+            <!-- App Purpose Description -->
+            <div class="glass rounded-lg p-8 mb-12 text-center">
+              <h2 class="medieval-title text-3xl font-bold gold-text mb-6">⚔️ Master Your Money Through Adventure ⚔️</h2>
+              <div class="max-w-4xl mx-auto">
+                <p class="text-xl text-yellow-200 mb-6 leading-relaxed">
+                  <strong>Coin Quest RPG</strong> transforms the challenge of budgeting and saving money into an exciting medieval adventure! 
+                  Track your real expenses, build emergency funds, and pay off debts while earning epic rewards and leveling up your character.
+                </p>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
+                  <div class="bg-green-900/30 rounded-lg p-6 border border-green-400/50">
+                    <h4 class="medieval-title text-lg font-bold gold-text mb-3">💰 Real Budget Tracking</h4>
+                    <ul class="text-yellow-300 text-sm space-y-2">
+                      <li>• Log your actual income and expenses</li>
+                      <li>• Set and track savings goals</li>
+                      <li>• Monitor spending across categories</li>
+                      <li>• Build emergency fund reserves</li>
+                    </ul>
+                  </div>
+                  
+                  <div class="bg-red-900/30 rounded-lg p-6 border border-red-400/50">
+                    <h4 class="medieval-title text-lg font-bold gold-text mb-3">🐉 Debt Management</h4>
+                    <ul class="text-yellow-300 text-sm space-y-2">
+                      <li>• Transform debts into "dragons to slay"</li>
+                      <li>• Track payment progress visually</li>
+                      <li>• Celebrate each payment milestone</li>
+                      <li>• Stay motivated with gamification</li>
+                    </ul>
+                  </div>
+                </div>
+                
+                <div class="mt-6 p-4 bg-yellow-900/20 rounded-lg border border-yellow-400/30">
+                  <p class="text-yellow-200 font-medium">
+                    <i class="fas fa-star text-yellow-400 mr-2"></i>
+                    <strong>Get Rewarded for Good Financial Habits:</strong> Every dollar saved, every debt payment, and every budget goal unlocks new character equipment, titles, and achievements. Turn financial responsibility into an epic quest!
+                  </p>
+                </div>
+              </div>
+            </div>
+
             <!-- Features Grid -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
               <div class="glass rounded-lg p-6 text-center">
                 <div class="text-4xl mb-4">🏰</div>
                 <h3 class="medieval-title text-xl font-bold gold-text mb-2">Epic Character System</h3>
-                <p class="text-yellow-300 text-sm">Customize your character with 32+ equipment items from Peasant to Elder Master</p>
+                <p class="text-yellow-300 text-sm">Earn 180+ equipment items and titles as you achieve real financial milestones</p>
               </div>
               
               <div class="glass rounded-lg p-6 text-center">
                 <div class="text-4xl mb-4">🐉</div>
                 <h3 class="medieval-title text-xl font-bold gold-text mb-2">Debt Dragon Slaying</h3>
-                <p class="text-yellow-300 text-sm">Transform debts into fearsome dragons and earn legendary equipment by defeating them</p>
+                <p class="text-yellow-300 text-sm">Transform real debts into dragons and earn legendary rewards for each payment</p>
               </div>
               
               <div class="glass rounded-lg p-6 text-center">
                 <div class="text-4xl mb-4">👑</div>
-                <h3 class="medieval-title text-xl font-bold gold-text mb-2">Level Progression</h3>
-                <p class="text-yellow-300 text-sm">Progress from Peasant Coin-Counter to Elder Scrolls Master of Gold</p>
+                <h3 class="medieval-title text-xl font-bold gold-text mb-2">Real Money Progress</h3>
+                <p class="text-yellow-300 text-sm">Level up from Peasant to Master as you build actual savings and financial security</p>
               </div>
             </div>
 
-            <!-- Subscription Plans -->
+            <!-- Subscription Plan -->
             <div class="glass rounded-lg p-8 mb-8">
-              <h2 class="medieval-title text-3xl font-bold gold-text text-center mb-8">Choose Your Adventure</h2>
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <!-- Free Trial -->
-                <div class="bg-gray-800/50 rounded-lg p-6 border-2 border-gray-600">
+              <h2 class="medieval-title text-3xl font-bold gold-text text-center mb-8">Start Your Financial Quest</h2>
+              
+              <!-- Single Plan Showcase -->
+              <div class="max-w-md mx-auto">
+                <div class="bg-gradient-to-br from-blue-800/50 to-purple-800/50 rounded-lg p-8 border-2 border-yellow-400 transform hover:scale-105 transition-all">
                   <div class="text-center">
-                    <h3 class="medieval-title text-xl font-bold text-green-400 mb-2">🆓 Free Trial</h3>
-                    <div class="text-3xl font-bold text-white mb-2">$0</div>
-                    <div class="text-sm text-gray-400 mb-4">7 days free</div>
-                    <ul class="text-sm text-gray-300 space-y-2 mb-6">
-                      <li>✓ Basic character customization</li>
-                      <li>✓ Up to 3 debt dragons</li>
-                      <li>✓ Basic equipment tiers</li>
-                      <li>✓ Standard achievements</li>
-                    </ul>
+                    <div class="bg-yellow-500 text-black px-4 py-2 rounded-full text-sm font-bold mb-4">⚔️ COMPLETE ADVENTURE ⚔️</div>
+                    <h3 class="medieval-title text-2xl font-bold gold-text mb-4">Coin Quest RPG Premium</h3>
+                    
+                    <div class="mb-6">
+                      <div class="text-5xl font-bold text-white mb-2">$4.99</div>
+                      <div class="text-lg text-yellow-200 mb-1">per month</div>
+                      <div class="text-sm text-green-400 font-medium">✨ 7-Day Free Trial Included</div>
+                    </div>
+                    
+                    <div class="bg-black/20 rounded-lg p-4 mb-6">
+                      <h4 class="text-yellow-400 font-bold mb-3">🎮 Everything You Need to Master Money:</h4>
+                      <ul class="text-sm text-yellow-100 space-y-2 text-left">
+                        <li class="flex items-center"><i class="fas fa-check text-green-400 mr-3"></i>Complete budget tracking system</li>
+                        <li class="flex items-center"><i class="fas fa-check text-green-400 mr-3"></i>180+ character rewards & equipment</li>
+                        <li class="flex items-center"><i class="fas fa-check text-green-400 mr-3"></i>Unlimited debt dragon battles</li>
+                        <li class="flex items-center"><i class="fas fa-check text-green-400 mr-3"></i>All achievement & collection systems</li>
+                        <li class="flex items-center"><i class="fas fa-check text-green-400 mr-3"></i>Progress analytics & insights</li>
+                        <li class="flex items-center"><i class="fas fa-check text-green-400 mr-3"></li>Monthly financial reports</li>
+                        <li class="flex items-center"><i class="fas fa-check text-green-400 mr-3"></i>Goal tracking & milestones</li>
+                        <li class="flex items-center"><i class="fas fa-check text-green-400 mr-3"></i>Premium customer support</li>
+                      </ul>
+                    </div>
+                    
+                    <div class="text-xs text-yellow-400 mb-4">
+                      💡 <strong>Perfect for:</strong> Anyone wanting to build better money habits while having fun!<br>
+                      Cancel anytime • No hidden fees • Secure payments
+                    </div>
                   </div>
                 </div>
-
-                <!-- Adventurer Plan -->
-                <div class="bg-blue-800/50 rounded-lg p-6 border-2 border-blue-400 transform scale-105">
-                  <div class="text-center">
-                    <div class="bg-blue-500 text-white px-3 py-1 rounded-full text-xs font-bold mb-2">MOST POPULAR</div>
-                    <h3 class="medieval-title text-xl font-bold text-blue-400 mb-2">⚔️ Adventurer Plan</h3>
-                    <div class="text-3xl font-bold text-white mb-2">$9.99</div>
-                    <div class="text-sm text-gray-400 mb-4">per month</div>
-                    <ul class="text-sm text-gray-300 space-y-2 mb-6">
-                      <li>✓ Full character customization</li>
-                      <li>✓ Unlimited debt dragons</li>
-                      <li>✓ All equipment tiers</li>
-                      <li>✓ All achievements</li>
-                      <li>✓ Monthly progress reports</li>
-                    </ul>
-                  </div>
-                </div>
-
-                <!-- Noble Plan -->
-                <div class="bg-purple-800/50 rounded-lg p-6 border-2 border-purple-400">
-                  <div class="text-center">
-                    <h3 class="medieval-title text-xl font-bold text-purple-400 mb-2">👑 Noble Plan</h3>
-                    <div class="text-3xl font-bold text-white mb-2">$19.99</div>
-                    <div class="text-sm text-gray-400 mb-4">per month</div>
-                    <ul class="text-sm text-gray-300 space-y-2 mb-6">
-                      <li>✓ Everything in Adventurer</li>
-                      <li>✓ Advanced analytics</li>
-                      <li>✓ Goal tracking</li>
-                      <li>✓ Custom categories</li>
-                      <li>✓ Priority support</li>
-                    </ul>
-                  </div>
+              </div>
+              
+              <!-- Value Proposition -->
+              <div class="mt-8 text-center">
+                <p class="text-lg text-yellow-200 mb-4">
+                  <strong>Why $4.99/month?</strong> Less than a coffee per week to transform your entire financial future!
+                </p>
+                <div class="flex justify-center items-center space-x-8 text-sm text-yellow-300">
+                  <div>☕ 1 Coffee = $5</div>
+                  <div>📱 This App = $4.99</div>
+                  <div>💰 Better Budget = Priceless</div>
                 </div>
               </div>
             </div>
@@ -1317,13 +1507,38 @@ app.get('/app', (c) => {
             <div id="character" class="tab-content hidden">
               <h2 class="medieval-title text-2xl font-bold mb-6 gold-text text-center">
                 <i class="fas fa-user-crown mr-2"></i>
-                Character Customization
+                Character Arsenal & Rewards
               </h2>
               
-              <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <!-- Character Display -->
+              <!-- Rewards Summary Stats -->
+              <div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+                <div class="glass rounded-lg p-4 text-center">
+                  <div class="text-2xl font-bold text-yellow-400" id="totalRewards">0</div>
+                  <div class="text-xs text-yellow-300">Total Items</div>
+                </div>
+                <div class="glass rounded-lg p-4 text-center">
+                  <div class="text-2xl font-bold text-green-400" id="unlockedRewards">0</div>
+                  <div class="text-xs text-yellow-300">Unlocked</div>
+                </div>
+                <div class="glass rounded-lg p-4 text-center">
+                  <div class="text-2xl font-bold text-blue-400" id="equippedRewards">0</div>
+                  <div class="text-xs text-yellow-300">Equipped</div>
+                </div>
+                <div class="glass rounded-lg p-4 text-center">
+                  <div class="text-2xl font-bold text-purple-400" id="availableRewards">0</div>
+                  <div class="text-xs text-yellow-300">Available</div>
+                </div>
+                <div class="glass rounded-lg p-4 text-center">
+                  <div class="text-2xl font-bold text-red-400" id="lockedRewards">0</div>
+                  <div class="text-xs text-yellow-300">Locked</div>
+                </div>
+              </div>
+              
+              <!-- Character Display & Progress -->
+              <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+                <!-- Character Avatar -->
                 <div class="glass rounded-lg p-6">
-                  <h3 class="medieval-title text-xl font-bold mb-4 gold-text">Your Character</h3>
+                  <h3 class="medieval-title text-xl font-bold mb-4 gold-text text-center">Your Character</h3>
                   <div class="text-center">
                     <div class="character-avatar mx-auto mb-4" style="width: 150px; height: 150px; font-size: 5rem;">
                       <span id="bigCharacterIcon">🏰</span>
@@ -1347,38 +1562,128 @@ app.get('/app', (c) => {
                     <div class="space-y-2">
                       <h4 class="medieval-title text-lg gold-text" id="displayCharacterTitle">Peasant Coin-Counter</h4>
                       <p class="text-yellow-400" id="displayCharacterClass">Peasant</p>
-                      <p class="text-yellow-300 text-sm" id="characterStats">Stats will be displayed here</p>
+                      <p class="text-yellow-300 text-sm" id="characterDescription">Your financial adventure begins...</p>
                     </div>
                   </div>
                 </div>
 
-                <!-- Equipment Categories -->
-                <div class="space-y-4">
-                  <div class="glass rounded-lg p-4">
-                    <h4 class="medieval-title text-lg font-bold mb-3 gold-text">
-                      <i class="fas fa-crown mr-2"></i>Helmets
-                    </h4>
-                    <div class="grid grid-cols-3 gap-2" id="helmetRewards">
-                      <!-- Helmet rewards will be loaded here -->
+                <!-- Progress Tracking -->
+                <div class="glass rounded-lg p-6">
+                  <h3 class="medieval-title text-xl font-bold mb-4 gold-text text-center">Quest Progress</h3>
+                  <div class="space-y-4">
+                    <div class="text-center">
+                      <div class="text-3xl font-bold gold-text mb-1" id="progressLevel">Level 1</div>
+                      <div class="text-sm text-yellow-400 mb-3" id="progressTitle">Peasant Coin-Counter</div>
+                      <div class="w-full bg-amber-900 rounded-full h-3 border border-yellow-600 mb-2">
+                        <div class="progress-bar h-3 rounded-full" id="progressXpBar" style="width: 0%"></div>
+                      </div>
+                      <div class="text-xs text-yellow-400" id="progressXpText">0 / 100 XP</div>
+                    </div>
+                    <div class="space-y-2 text-sm">
+                      <div class="flex justify-between">
+                        <span class="text-yellow-300">Gold Saved:</span>
+                        <span class="text-green-400 font-bold" id="progressSavings">0 🪙</span>
+                      </div>
+                      <div class="flex justify-between">
+                        <span class="text-yellow-300">Debt Slain:</span>
+                        <span class="text-red-400 font-bold" id="progressDebtPaid">0 🪙</span>
+                      </div>
+                      <div class="flex justify-between">
+                        <span class="text-yellow-300">Days Active:</span>
+                        <span class="text-blue-400 font-bold" id="progressDaysActive">1</span>
+                      </div>
                     </div>
                   </div>
+                </div>
 
-                  <div class="glass rounded-lg p-4">
-                    <h4 class="medieval-title text-lg font-bold mb-3 gold-text">
-                      <i class="fas fa-shield-alt mr-2"></i>Armor
-                    </h4>
-                    <div class="grid grid-cols-3 gap-2" id="armorRewards">
-                      <!-- Armor rewards will be loaded here -->
-                    </div>
+                <!-- Collections Progress -->
+                <div class="glass rounded-lg p-6">
+                  <h3 class="medieval-title text-xl font-bold mb-4 gold-text text-center">Collections</h3>
+                  <div id="collectionsProgress" class="space-y-3">
+                    <!-- Collections will be loaded here -->
+                    <div class="text-center text-yellow-400 text-sm">Loading collections...</div>
                   </div>
+                </div>
+              </div>
 
-                  <div class="glass rounded-lg p-4">
-                    <h4 class="medieval-title text-lg font-bold mb-3 gold-text">
-                      <i class="fas fa-sword mr-2"></i>Weapons
-                    </h4>
-                    <div class="grid grid-cols-3 gap-2" id="weaponRewards">
-                      <!-- Weapon rewards will be loaded here -->
+              <!-- Reward Categories Tabs -->
+              <div class="mb-4">
+                <div class="flex space-x-1 bg-gray-800/50 rounded-lg p-1">
+                  <button class="reward-category-tab active flex-1 py-2 px-3 rounded text-center text-sm font-medium transition-all" data-category="all">
+                    <i class="fas fa-star mr-1"></i>All Items
+                  </button>
+                  <button class="reward-category-tab flex-1 py-2 px-3 rounded text-center text-sm font-medium transition-all" data-category="helmet">
+                    <i class="fas fa-crown mr-1"></i>Helmets
+                  </button>
+                  <button class="reward-category-tab flex-1 py-2 px-3 rounded text-center text-sm font-medium transition-all" data-category="armor">
+                    <i class="fas fa-shield-alt mr-1"></i>Armor
+                  </button>
+                  <button class="reward-category-tab flex-1 py-2 px-3 rounded text-center text-sm font-medium transition-all" data-category="weapon">
+                    <i class="fas fa-sword mr-1"></i>Weapons
+                  </button>
+                  <button class="reward-category-tab flex-1 py-2 px-3 rounded text-center text-sm font-medium transition-all" data-category="shield">
+                    <i class="fas fa-shield mr-1"></i>Shields
+                  </button>
+                  <button class="reward-category-tab flex-1 py-2 px-3 rounded text-center text-sm font-medium transition-all" data-category="accessory">
+                    <i class="fas fa-gem mr-1"></i>Accessories
+                  </button>
+                  <button class="reward-category-tab flex-1 py-2 px-3 rounded text-center text-sm font-medium transition-all" data-category="title">
+                    <i class="fas fa-scroll mr-1"></i>Titles
+                  </button>
+                </div>
+              </div>
+
+              <!-- Rarity Filter -->
+              <div class="mb-6">
+                <div class="flex space-x-1 justify-center">
+                  <button class="rarity-filter active px-3 py-1 rounded text-xs font-bold border-2 border-gray-400 text-gray-300 transition-all" data-rarity="all">All</button>
+                  <button class="rarity-filter px-3 py-1 rounded text-xs font-bold border-2 border-gray-400 text-gray-300 transition-all" data-rarity="common">Common</button>
+                  <button class="rarity-filter px-3 py-1 rounded text-xs font-bold border-2 border-green-400 text-green-300 transition-all" data-rarity="rare">Rare</button>
+                  <button class="rarity-filter px-3 py-1 rounded text-xs font-bold border-2 border-blue-400 text-blue-300 transition-all" data-rarity="epic">Epic</button>
+                  <button class="rarity-filter px-3 py-1 rounded text-xs font-bold border-2 border-purple-400 text-purple-300 transition-all" data-rarity="legendary">Legendary</button>
+                  <button class="rarity-filter px-3 py-1 rounded text-xs font-bold border-2 border-red-400 text-red-300 transition-all" data-rarity="mythic">Mythic</button>
+                </div>
+              </div>
+
+              <!-- Rewards Display Grid -->
+              <div id="rewardsContainer">
+                <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-3" id="rewardsGrid">
+                  <!-- Rewards will be dynamically loaded here -->
+                  <div class="col-span-full text-center text-yellow-400 py-8">
+                    <i class="fas fa-spinner fa-spin text-2xl mb-2"></i>
+                    <div>Loading your legendary arsenal...</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Reward Details Modal -->
+              <div id="rewardModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/50">
+                <div class="glass-dark rounded-lg p-6 w-full max-w-lg mx-4">
+                  <div class="flex justify-between items-start mb-4">
+                    <div>
+                      <h3 class="text-xl font-bold gold-text" id="rewardModalTitle">Reward Name</h3>
+                      <p class="text-sm text-yellow-400" id="rewardModalRarity">Common</p>
                     </div>
+                    <button onclick="closeRewardModal()" class="text-gray-400 hover:text-white transition-colors">
+                      <i class="fas fa-times text-xl"></i>
+                    </button>
+                  </div>
+                  
+                  <div class="text-center mb-4">
+                    <div class="reward-icon-large mx-auto mb-3 w-16 h-16 flex items-center justify-center text-4xl rounded-lg border-2" id="rewardModalIcon">
+                      🏰
+                    </div>
+                    <p class="text-yellow-300" id="rewardModalDescription">Reward description goes here</p>
+                  </div>
+                  
+                  <div class="space-y-3" id="rewardModalRequirements">
+                    <!-- Requirements will be shown here -->
+                  </div>
+                  
+                  <div class="mt-6 text-center">
+                    <button id="rewardModalButton" class="medieval-btn px-6 py-3 rounded-lg font-bold transition-all">
+                      Equip Item
+                    </button>
                   </div>
                 </div>
               </div>

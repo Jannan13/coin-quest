@@ -17,41 +17,29 @@
 
 ### 💳 **Subscription Management**
 - **Free Trial**: 7-day full access trial for new users
-- **4 Subscription Tiers**: Trial → Adventurer → Noble → Elder Master
+- **Simple Pricing**: Single $4.99/month plan with everything included
 - **Payment Integration**: Ready for Stripe/PayPal integration
 - **Subscription Status**: Real-time tracking and access control
-- **Billing Cycles**: Monthly and yearly options
+- **Billing Cycles**: Monthly and yearly options (yearly discount available)
 
 ### 🏆 **Subscription Plans & Pricing**
 
 #### 🆓 **Free Trial** - $0 (7 days)
-- Basic character customization
-- Up to 3 debt dragons
-- Basic equipment tiers
-- Standard achievements
+- Complete budget tracking system
+- 180+ character rewards & equipment
+- Unlimited debt dragon battles
+- All achievement & collection systems
+- Progress analytics & insights
+- Goal tracking & milestones
 
-#### ⚔️ **Adventurer Plan** - $9.99/month
-- Full character customization
-- Unlimited debt dragons
-- All equipment tiers
-- All achievements
-- Monthly progress reports
+#### ⚔️ **Coin Quest RPG Premium** - $4.99/month
+- Everything from the free trial, plus:
+- Monthly financial reports
+- Premium customer support
+- All future updates included
+- Cancel anytime, no hidden fees
 
-#### 👑 **Noble Plan** - $19.99/month
-- Everything in Adventurer
-- Advanced analytics
-- Goal tracking
-- Custom categories
-- Priority support
-- Early access to new features
-
-#### 🏰 **Elder Master Plan** - $29.99/month
-- Everything in Noble
-- Personal financial coaching
-- Custom achievement creation
-- API access
-- White-label options
-- 1-on-1 support calls
+**Why just one plan?** We believe financial wellness should be accessible to everyone. Instead of complex tiers, we offer one affordable price that includes every feature - because your financial journey deserves the full adventure experience!
 
 ## 🎮 Live Application
 - **Landing Page**: https://3000-iyzxp45g1y4nga25l9v59-6532622b.e2b.dev
@@ -72,7 +60,7 @@
 1. **Trial Reminder**: In-app notifications about remaining trial days
 2. **Feature Restrictions**: Limited access as trial expires
 3. **Upgrade Prompts**: Strategic upgrade opportunities
-4. **Plan Selection**: Choose from 3 paid subscription tiers
+4. **Plan Selection**: Simple $4.99/month premium subscription
 5. **Payment Processing**: Secure subscription activation
 6. **Full Access**: Unlock all premium features
 
@@ -86,10 +74,10 @@
 ## 📊 Business Metrics & KPIs
 
 ### **Revenue Metrics**
-- **MRR (Monthly Recurring Revenue)**: Target $10K+ per month
-- **ARR (Annual Recurring Revenue)**: Target $120K+ per year
-- **Customer LTV**: Estimated $200+ (based on 20-month retention)
-- **Average Revenue Per User**: $12.50/month across all plans
+- **MRR (Monthly Recurring Revenue)**: Target $5K+ per month
+- **ARR (Annual Recurring Revenue)**: Target $60K+ per year
+- **Customer LTV**: Estimated $120+ (based on 24-month retention)
+- **Average Revenue Per User**: $4.99/month (simplified single plan pricing)
 
 ### **Growth Metrics**
 - **Trial-to-Paid Conversion**: Target 15-25%
@@ -151,19 +139,19 @@
 ## 💰 Revenue Projections
 
 ### **Conservative Scenario** (Year 1)
-- 100 subscribers avg × $12.50/month = $1,250 MRR
-- Annual Revenue: $15,000
-- Break-even: Month 3-4
+- 200 subscribers avg × $4.99/month = $998 MRR
+- Annual Revenue: $12,000
+- Break-even: Month 2-3
 
 ### **Optimistic Scenario** (Year 1)
-- 500 subscribers avg × $12.50/month = $6,250 MRR
-- Annual Revenue: $75,000
-- Break-even: Month 2
+- 1,000 subscribers avg × $4.99/month = $4,990 MRR
+- Annual Revenue: $60,000
+- Break-even: Month 1-2
 
 ### **Scale Scenario** (Year 2)
-- 2,000 subscribers avg × $12.50/month = $25,000 MRR
-- Annual Revenue: $300,000
-- Potential for team expansion and advanced features
+- 4,000 subscribers avg × $4.99/month = $19,960 MRR
+- Annual Revenue: $240,000
+- Mass market appeal with accessible pricing
 
 ## 🚀 Go-to-Market Strategy
 
@@ -212,22 +200,22 @@
 ## 📈 Success Metrics
 
 ### **6-Month Goals**
-- 50+ paying subscribers
-- $500+ MRR
-- <10% monthly churn
+- 100+ paying subscribers
+- $499+ MRR
+- <8% monthly churn
 - 4.5+ App Store rating
 
 ### **1-Year Goals**
-- 500+ paying subscribers
-- $5,000+ MRR
-- 20% trial-to-paid conversion
+- 1,000+ paying subscribers
+- $4,990+ MRR
+- 25% trial-to-paid conversion (higher due to lower price barrier)
 - Featured in major finance/gaming publications
 
 ### **2-Year Goals**
-- 2,000+ paying subscribers
-- $20,000+ MRR
+- 4,000+ paying subscribers
+- $19,960+ MRR
 - Mobile app launch
-- Series A funding discussions
+- Strong profitability and organic growth
 
 ## 🛡️ Risk Management
 
