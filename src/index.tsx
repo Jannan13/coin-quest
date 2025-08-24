@@ -229,6 +229,41 @@ app.get('/api/auth/me', authMiddleware, (c) => {
 // SUBSCRIPTION ROUTES
 // ===============================
 
+// Debug endpoint to test database connection
+app.get('/api/debug/db-test', async (c) => {
+  const { env } = c;
+  
+  try {
+    // Test if DB binding exists
+    if (!env.DB) {
+      return c.json({ error: 'Database binding not found', hasDB: false });
+    }
+    
+    // Test basic query
+    const result = await env.DB.prepare('SELECT 1 as test').first();
+    
+    // Test if subscription_plans table exists
+    const tables = await env.DB.prepare(`
+      SELECT name FROM sqlite_master WHERE type='table' AND name='subscription_plans'
+    `).all();
+    
+    return c.json({ 
+      success: true, 
+      hasDB: true,
+      basicQuery: result,
+      tablesFound: tables.results.length,
+      message: 'Database connection working'
+    });
+    
+  } catch (error) {
+    return c.json({ 
+      error: 'Database connection failed', 
+      details: error.message,
+      hasDB: !!env.DB 
+    }, 500);
+  }
+});
+
 // Get subscription plans
 app.get('/api/subscription/plans', async (c) => {
   const { env } = c;
