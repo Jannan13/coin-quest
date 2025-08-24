@@ -1375,6 +1375,11 @@ class CoinQuestRPG {
   }
 
   filterAndDisplayRewards() {
+    // Initialize rewards if undefined
+    if (!this.rewards || typeof this.rewards !== 'object') {
+      this.rewards = {};
+    }
+
     const activeCategory = document.querySelector('.reward-category-tab.active')?.dataset.category || 'all';
     const activeRarity = document.querySelector('.rarity-filter.active')?.dataset.rarity || 'all';
     
@@ -1383,15 +1388,20 @@ class CoinQuestRPG {
     if (activeCategory === 'all') {
       // Show all rewards from all categories
       Object.keys(this.rewards).forEach(category => {
-        Object.keys(this.rewards[category]).forEach(rarity => {
-          filteredRewards.push(...this.rewards[category][rarity]);
-        });
+        if (this.rewards[category] && typeof this.rewards[category] === 'object') {
+          Object.keys(this.rewards[category]).forEach(rarity => {
+            if (Array.isArray(this.rewards[category][rarity])) {
+              filteredRewards.push(...this.rewards[category][rarity]);
+            }
+          });
+        }
       });
     } else {
       // Show rewards from specific category
-      if (this.rewards[activeCategory]) {
+      if (this.rewards[activeCategory] && typeof this.rewards[activeCategory] === 'object') {
         Object.keys(this.rewards[activeCategory]).forEach(rarity => {
-          filteredRewards.push(...this.rewards[activeCategory][rarity]);
+          if (Array.isArray(this.rewards[activeCategory][rarity])) {
+            filteredRewards.push(...this.rewards[activeCategory][rarity]);
         });
       }
     }
@@ -1606,10 +1616,18 @@ class CoinQuestRPG {
   }
 
   findRewardById(rewardId) {
+    if (!this.rewards || typeof this.rewards !== 'object') {
+      return null;
+    }
+    
     for (const category of Object.keys(this.rewards)) {
-      for (const rarity of Object.keys(this.rewards[category])) {
-        const reward = this.rewards[category][rarity].find(r => r.id == rewardId);
-        if (reward) return reward;
+      if (this.rewards[category] && typeof this.rewards[category] === 'object') {
+        for (const rarity of Object.keys(this.rewards[category])) {
+          if (Array.isArray(this.rewards[category][rarity])) {
+            const reward = this.rewards[category][rarity].find(r => r.id == rewardId);
+            if (reward) return reward;
+          }
+        }
       }
     }
     return null;
