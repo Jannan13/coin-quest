@@ -42,9 +42,17 @@
 **Why just one plan?** We believe financial wellness should be accessible to everyone. Instead of complex tiers, we offer one affordable price that includes every feature - because your financial journey deserves the full adventure experience!
 
 ## 🎮 Live Application
-- **Landing Page**: https://3000-iyzxp45g1y4nga25l9v59-6532622b.e2b.dev
-- **Main App**: https://3000-iyzxp45g1y4nga25l9v59-6532622b.e2b.dev/app (requires login)
-- **API Health**: https://3000-iyzxp45g1y4nga25l9v59-6532622b.e2b.dev/api/subscription/plans
+
+### 🚀 Production Deployment
+- **Domain**: cointquest.org (purchased and ready)
+- **Production URL**: https://cointquest-org.pages.dev (deploying)
+- **Cloudflare Project**: cointquest-org
+- **Database**: Cloudflare D1 (ID: a2c7879c-768e-4802-829b-1087389b0768)
+- **Status**: ⚡ Ready for production deployment
+
+### 🔧 Development URLs
+- **Sandbox Dev**: https://3000-iyzxp45g1y4nga25l9v59-6532622b.e2b.dev
+- **API Health**: /api/subscription/plans
 
 ## 🔄 User Journey & Experience
 
