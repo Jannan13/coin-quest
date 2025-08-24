@@ -624,25 +624,113 @@ class CoinQuestRPG {
 
   async subscribeToPlan(planId, planName, billingCycle = 'monthly') {
     try {
-      this.showLoading('Upgrading your adventure...');
+      this.showLoading('Redirecting to secure payment...');
       
-      const response = await this.makeAuthenticatedRequest('/api/subscription/subscribe', {
+      // Create Stripe Checkout session
+      const response = await this.makeAuthenticatedRequest('/api/create-checkout-session', {
         method: 'POST',
         data: {
-          plan_id: planId,
+          price_id: 'price_REPLACE_WITH_STRIPE_PRICE_ID', // Will be updated with real Stripe price ID
           billing_cycle: billingCycle
         }
       });
       
-      if (response.data.success) {
-        // Update user data
-        this.currentUser.subscription_status = 'active';
-        this.currentUser.subscription_plan = planName;
-        localStorage.setItem('user_data', JSON.stringify(this.currentUser));
-        
+      if (response.data.checkout_url) {
+        // Redirect to Stripe Checkout
+        window.location.href = response.data.checkout_url;
+      } else {
         this.hideLoading();
-        this.closeModal('upgradeModal');
-        this.showSuccess('🏰 Subscription upgraded! Your adventure continues!');
+        this.showError('Failed to create payment session. Please try again.');
+      }
+    } catch (error) {
+      this.hideLoading();
+      console.error('Error creating checkout session:', error);
+      this.showError('Payment setup failed. Please try again.');
+    }
+  }
+
+  // Handle successful payment return from Stripe
+  async handlePaymentSuccess(sessionId) {
+    try {
+      this.showLoading('Confirming your payment...');
+      
+      // Wait a moment for webhook processing
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Refresh user data to get updated subscription status
+      await this.loadUserStats();
+      
+      this.hideLoading();
+      this.showSuccess('🎉 Payment successful! Welcome to Coin Quest RPG Premium!');
+      
+      // Refresh the page to show updated subscription status
+      setTimeout(() => {
+        window.location.href = '/app';
+      }, 2000);
+      
+    } catch (error) {
+      this.hideLoading();
+      console.error('Error confirming payment:', error);
+      this.showError('Payment may still be processing. Please refresh the page.');
+    }
+  }
+
+  // Add subscription status checking method
+  async checkDetailedSubscriptionStatus() {
+    try {
+      const response = await this.makeAuthenticatedRequest(`/api/subscription-status/${this.currentUser.id}`);
+      
+      if (response.data) {
+        const status = response.data;
+        
+        // Update UI based on subscription status
+        if (status.subscription_status === 'premium') {
+          this.showSuccess('✅ Premium subscription active');
+        } else if (status.subscription_status === 'trial') {
+          const daysLeft = Math.ceil((new Date(status.trial_end_date) - new Date()) / (1000 * 60 * 60 * 24));
+          this.showInfo(`⏰ ${daysLeft} days left in your free trial`);
+        } else if (status.subscription_status === 'cancelled_at_period_end') {
+          this.showWarning('📋 Subscription will cancel at the end of current period');
+        }
+        
+        return status;
+      }
+    } catch (error) {
+      console.error('Error checking detailed subscription status:', error);
+    }
+  }
+
+  // Add method to cancel subscription
+  async cancelSubscription() {
+    if (!confirm('Are you sure you want to cancel your subscription? You will still have access until the end of your current billing period.')) {
+      return;
+    }
+
+    try {
+      this.showLoading('Processing cancellation...');
+      
+      const response = await this.makeAuthenticatedRequest('/api/cancel-subscription', {
+        method: 'POST',
+        data: {
+          user_id: this.currentUser.id
+        }
+      });
+      
+      if (response.data.success) {
+        this.hideLoading();
+        this.showSuccess('Subscription cancelled. You will have access until the end of your current period.');
+        
+        // Refresh subscription status
+        await this.checkDetailedSubscriptionStatus();
+      } else {
+        this.hideLoading();
+        this.showError('Failed to cancel subscription. Please try again.');
+      }
+    } catch (error) {
+      this.hideLoading();
+      console.error('Error cancelling subscription:', error);
+      this.showError('Failed to cancel subscription. Please contact support.');
+    }
         
         // Refresh data
         await this.loadUserStats();

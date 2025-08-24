@@ -24,7 +24,8 @@
     "git:log": "git log --oneline"
   },
   "dependencies": {
-    "hono": "^4.9.2"
+    "hono": "^4.9.2",
+    "stripe": "^18.4.0"
   },
   "devDependencies": {
     "@hono/vite-build": "^1.2.0",

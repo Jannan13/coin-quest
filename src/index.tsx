@@ -6,6 +6,9 @@ import { jwt, sign, verify } from 'hono/jwt'
 type Bindings = {
   DB: D1Database;
   JWT_SECRET?: string;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_PUBLISHABLE_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
 }
 
 type Variables = {
@@ -1775,5 +1778,307 @@ app.get('/app', (c) => {
     </html>
   `)
 })
+
+// ====== STRIPE PAYMENT INTEGRATION ======
+
+// Stripe configuration and endpoints for subscription payments
+app.post('/api/create-checkout-session', authMiddleware, async (c) => {
+  const { env } = c;
+  const { price_id } = await c.req.json();
+  const user = c.get('user');
+
+  // Import Stripe dynamically
+  const Stripe = (await import('stripe')).default;
+  const stripe = new Stripe(env.STRIPE_SECRET_KEY || '', {
+    apiVersion: '2023-10-16'
+  });
+
+  try {
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      payment_method_types: ['card'],
+      line_items: [{
+        price: price_id || 'price_REPLACE_WITH_STRIPE_PRICE_ID', // Will be updated with real Stripe price ID
+        quantity: 1,
+      }],
+      success_url: `https://coinquest.pages.dev/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `https://coinquest.pages.dev/pricing`,
+      client_reference_id: user.id.toString(),
+      customer_email: user.email,
+      metadata: {
+        user_id: user.id.toString()
+      },
+      subscription_data: {
+        metadata: {
+          user_id: user.id.toString()
+        }
+      }
+    });
+
+    return c.json({ checkout_url: session.url });
+  } catch (error) {
+    console.error('Stripe checkout error:', error);
+    return c.json({ error: 'Payment setup failed' }, 500);
+  }
+});
+
+// Handle Stripe webhooks for subscription events
+app.post('/api/stripe-webhook', async (c) => {
+  const { env } = c;
+  const sig = c.req.header('stripe-signature');
+  const body = await c.req.text();
+
+  // Import Stripe dynamically
+  const Stripe = (await import('stripe')).default;
+  const stripe = new Stripe(env.STRIPE_SECRET_KEY || '', {
+    apiVersion: '2023-10-16'
+  });
+
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(body, sig, env.STRIPE_WEBHOOK_SECRET || '');
+  } catch (err) {
+    console.error('Webhook signature verification failed:', err);
+    return c.text('Webhook signature verification failed', 400);
+  }
+
+  // Handle the event
+  switch (event.type) {
+    case 'checkout.session.completed':
+      const session = event.data.object;
+      
+      // Update user subscription status to premium
+      await env.DB.prepare(`
+        UPDATE users 
+        SET subscription_status = 'premium',
+            stripe_customer_id = ?,
+            subscription_ends_at = datetime('now', '+1 month'),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).bind(session.customer, session.client_reference_id).run();
+
+      // Record the successful payment transaction
+      await env.DB.prepare(`
+        INSERT INTO payment_transactions 
+        (user_id, amount, currency, payment_provider, provider_transaction_id, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      `).bind(
+        session.client_reference_id,
+        4.99,
+        'USD', 
+        'stripe',
+        session.id,
+        'completed'
+      ).run();
+
+      console.log('✅ Subscription activated for user:', session.client_reference_id);
+      break;
+
+    case 'invoice.payment_succeeded':
+      // Handle recurring monthly payments
+      const invoice = event.data.object;
+      const customerId = invoice.customer;
+      
+      // Get user by Stripe customer ID
+      const user = await env.DB.prepare(`
+        SELECT id FROM users WHERE stripe_customer_id = ?
+      `).bind(customerId).first();
+
+      if (user) {
+        // Extend subscription by 1 month
+        await env.DB.prepare(`
+          UPDATE users 
+          SET subscription_ends_at = datetime(
+            COALESCE(subscription_ends_at, datetime('now')), 
+            '+1 month'
+          ),
+          subscription_status = 'premium',
+          updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `).bind(user.id).run();
+
+        // Record the payment
+        await env.DB.prepare(`
+          INSERT INTO payment_transactions 
+          (user_id, amount, currency, payment_provider, provider_transaction_id, status, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `).bind(
+          user.id,
+          (invoice.amount_paid / 100), // Convert cents to dollars
+          invoice.currency.toUpperCase(),
+          'stripe',
+          invoice.id,
+          'completed'
+        ).run();
+
+        console.log('✅ Recurring payment processed for user:', user.id);
+      }
+      break;
+
+    case 'invoice.payment_failed':
+      // Handle failed payments
+      const failedInvoice = event.data.object;
+      const failedCustomerId = failedInvoice.customer;
+      
+      // Get user by Stripe customer ID
+      const failedUser = await env.DB.prepare(`
+        SELECT id FROM users WHERE stripe_customer_id = ?
+      `).bind(failedCustomerId).first();
+
+      if (failedUser) {
+        // Record the failed payment
+        await env.DB.prepare(`
+          INSERT INTO payment_transactions 
+          (user_id, amount, currency, payment_provider, provider_transaction_id, status, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `).bind(
+          failedUser.id,
+          (failedInvoice.amount_due / 100),
+          failedInvoice.currency.toUpperCase(),
+          'stripe',
+          failedInvoice.id,
+          'failed'
+        ).run();
+
+        console.log('❌ Payment failed for user:', failedUser.id);
+        
+        // Note: Don't immediately downgrade - Stripe will retry automatically
+        // Consider sending email notification here
+      }
+      break;
+
+    case 'customer.subscription.deleted':
+      // Handle subscription cancellation
+      const subscription = event.data.object;
+      const cancelledCustomerId = subscription.customer;
+      
+      // Update user subscription status
+      const cancelledUser = await env.DB.prepare(`
+        SELECT id FROM users WHERE stripe_customer_id = ?
+      `).bind(cancelledCustomerId).first();
+
+      if (cancelledUser) {
+        await env.DB.prepare(`
+          UPDATE users 
+          SET subscription_status = 'cancelled',
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `).bind(cancelledUser.id).run();
+
+        console.log('📋 Subscription cancelled for user:', cancelledUser.id);
+      }
+      break;
+
+    default:
+      console.log(`Unhandled event type ${event.type}`);
+  }
+
+  return c.text('Success');
+});
+
+// Get subscription status and payment info
+app.get('/api/subscription-status/:userId', authMiddleware, async (c) => {
+  const { env } = c;
+  const userId = c.req.param('userId');
+
+  try {
+    const user = await env.DB.prepare(`
+      SELECT 
+        subscription_status,
+        subscription_ends_at,
+        trial_end_date,
+        stripe_customer_id,
+        created_at
+      FROM users 
+      WHERE id = ?
+    `).bind(userId).first();
+
+    if (!user) {
+      return c.json({ error: 'User not found' }, 404);
+    }
+
+    // Get payment history
+    const payments = await env.DB.prepare(`
+      SELECT 
+        amount,
+        currency,
+        payment_provider,
+        status,
+        created_at
+      FROM payment_transactions 
+      WHERE user_id = ?
+      ORDER BY created_at DESC
+      LIMIT 10
+    `).bind(userId).all();
+
+    return c.json({
+      subscription_status: user.subscription_status,
+      subscription_ends_at: user.subscription_ends_at,
+      trial_end_date: user.trial_end_date,
+      has_stripe_customer: !!user.stripe_customer_id,
+      payment_history: payments.results
+    });
+  } catch (error) {
+    console.error('Error getting subscription status:', error);
+    return c.json({ error: 'Internal server error' }, 500);
+  }
+});
+
+// Cancel subscription endpoint
+app.post('/api/cancel-subscription', authMiddleware, async (c) => {
+  const { env } = c;
+  const { user_id } = await c.req.json();
+  const user = c.get('user');
+
+  if (user.id !== parseInt(user_id)) {
+    return c.json({ error: 'Unauthorized' }, 403);
+  }
+
+  try {
+    // Get user's Stripe customer ID
+    const userData = await env.DB.prepare(`
+      SELECT stripe_customer_id FROM users WHERE id = ?
+    `).bind(user_id).first();
+
+    if (!userData || !userData.stripe_customer_id) {
+      return c.json({ error: 'No active subscription found' }, 404);
+    }
+
+    // Cancel subscription in Stripe (at period end)
+    const Stripe = (await import('stripe')).default;
+    const stripe = new Stripe(env.STRIPE_SECRET_KEY || '', {
+      apiVersion: '2023-10-16'
+    });
+
+    // Get active subscriptions for this customer
+    const subscriptions = await stripe.subscriptions.list({
+      customer: userData.stripe_customer_id,
+      status: 'active'
+    });
+
+    // Cancel all active subscriptions at period end
+    for (const subscription of subscriptions.data) {
+      await stripe.subscriptions.update(subscription.id, {
+        cancel_at_period_end: true
+      });
+    }
+
+    // Update database to reflect cancellation is scheduled
+    await env.DB.prepare(`
+      UPDATE users 
+      SET subscription_status = 'cancelled_at_period_end',
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).bind(user_id).run();
+
+    return c.json({ 
+      success: true, 
+      message: 'Subscription will cancel at the end of the current period' 
+    });
+  } catch (error) {
+    console.error('Error cancelling subscription:', error);
+    return c.json({ error: 'Failed to cancel subscription' }, 500);
+  }
+});
 
 export default app
