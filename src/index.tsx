@@ -2024,6 +2024,171 @@ app.get('/api/subscription-status/:userId', authMiddleware, async (c) => {
   }
 });
 
+// Database initialization endpoint (for production setup)
+app.post('/api/init-database', async (c) => {
+  const { env } = c;
+  
+  try {
+    // Create users table with authentication
+    await env.DB.prepare(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        subscription_status TEXT CHECK(subscription_status IN ('trial', 'premium', 'expired', 'cancelled')) DEFAULT 'trial',
+        subscription_plan TEXT DEFAULT 'trial',
+        trial_end_date DATETIME DEFAULT (datetime('now', '+7 days')),
+        subscription_ends_at DATETIME,
+        stripe_customer_id TEXT,
+        current_level INTEGER DEFAULT 1,
+        experience_points INTEGER DEFAULT 0,
+        total_saved REAL DEFAULT 0,
+        total_debt_paid REAL DEFAULT 0,
+        avatar_video_level INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run();
+
+    // Create budget categories
+    await env.DB.prepare(`
+      CREATE TABLE IF NOT EXISTS categories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        type TEXT CHECK(type IN ('income', 'expense', 'savings', 'debt')) NOT NULL,
+        icon TEXT,
+        color TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run();
+
+    // Create budget entries
+    await env.DB.prepare(`
+      CREATE TABLE IF NOT EXISTS budget_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        category_id INTEGER NOT NULL,
+        amount REAL NOT NULL,
+        description TEXT,
+        entry_date DATE NOT NULL,
+        type TEXT CHECK(type IN ('income', 'expense', 'savings', 'debt_payment')) NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id),
+        FOREIGN KEY (category_id) REFERENCES categories(id)
+      )
+    `).run();
+
+    // Create subscription plans
+    await env.DB.prepare(`
+      CREATE TABLE IF NOT EXISTS subscription_plans (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        plan_name TEXT UNIQUE NOT NULL,
+        display_name TEXT NOT NULL,
+        description TEXT,
+        monthly_price REAL NOT NULL,
+        annual_price REAL,
+        features TEXT,
+        max_users INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run();
+
+    // Create payment transactions
+    await env.DB.prepare(`
+      CREATE TABLE IF NOT EXISTS payment_transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        amount REAL NOT NULL,
+        currency TEXT DEFAULT 'USD',
+        payment_provider TEXT DEFAULT 'stripe',
+        provider_transaction_id TEXT,
+        status TEXT CHECK(status IN ('pending', 'completed', 'failed', 'refunded')) DEFAULT 'pending',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+      )
+    `).run();
+
+    // Create achievements
+    await env.DB.prepare(`
+      CREATE TABLE IF NOT EXISTS achievements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        description TEXT,
+        icon TEXT,
+        level_requirement INTEGER DEFAULT 1,
+        savings_requirement REAL DEFAULT 0,
+        debt_payment_requirement REAL DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run();
+
+    // Create character rewards
+    await env.DB.prepare(`
+      CREATE TABLE IF NOT EXISTS character_rewards (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT NOT NULL,
+        name TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        description TEXT,
+        rarity TEXT CHECK(rarity IN ('common', 'rare', 'epic', 'legendary', 'mythic')) DEFAULT 'common',
+        unlock_level INTEGER DEFAULT 1,
+        unlock_savings_requirement REAL DEFAULT 0,
+        unlock_debt_payment_requirement REAL DEFAULT 0,
+        icon TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run();
+
+    // Create user rewards
+    await env.DB.prepare(`
+      CREATE TABLE IF NOT EXISTS user_rewards (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        reward_id INTEGER NOT NULL,
+        is_equipped BOOLEAN DEFAULT FALSE,
+        unlocked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id),
+        FOREIGN KEY (reward_id) REFERENCES character_rewards(id),
+        UNIQUE(user_id, reward_id)
+      )
+    `).run();
+
+    // Insert default subscription plan
+    await env.DB.prepare(`
+      INSERT OR IGNORE INTO subscription_plans (plan_name, display_name, description, monthly_price, annual_price, features)
+      VALUES ('premium', '⚔️ Coin Quest RPG Premium', 'Complete financial adventure', 4.99, 49.99, '{"features": ["All character rewards", "Unlimited dragons", "Premium support", "Future updates"]}')
+    `).run();
+
+    // Insert default categories
+    await env.DB.prepare(`
+      INSERT OR IGNORE INTO categories (name, type, icon, color) VALUES
+      ('Salary', 'income', '💰', 'green'),
+      ('Food & Dining', 'expense', '🍽️', 'red'),
+      ('Transportation', 'expense', '🚗', 'blue'),
+      ('Emergency Fund', 'savings', '🛡️', 'purple'),
+      ('Credit Card', 'debt', '💳', 'orange')
+    `).run();
+
+    // Create indexes
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_budget_entries_user_id ON budget_entries(user_id)`).run();
+
+    return c.json({ 
+      success: true, 
+      message: 'Database initialized successfully! You can now register and use the app.' 
+    });
+
+  } catch (error) {
+    console.error('Database initialization error:', error);
+    return c.json({ 
+      success: false, 
+      error: 'Database initialization failed',
+      details: error.message 
+    }, 500);
+  }
+});
+
 // Cancel subscription endpoint
 app.post('/api/cancel-subscription', authMiddleware, async (c) => {
   const { env } = c;
