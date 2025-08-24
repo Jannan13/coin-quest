@@ -1402,6 +1402,7 @@ class CoinQuestRPG {
         Object.keys(this.rewards[activeCategory]).forEach(rarity => {
           if (Array.isArray(this.rewards[activeCategory][rarity])) {
             filteredRewards.push(...this.rewards[activeCategory][rarity]);
+          }
         });
       }
     }
