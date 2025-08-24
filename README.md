@@ -44,15 +44,23 @@
 ## 🎮 Live Application
 
 ### 🚀 Production Deployment
-- **Domain**: cointquest.org (purchased and ready)
-- **Production URL**: https://cointquest-org.pages.dev (deploying)
-- **Cloudflare Project**: cointquest-org
+- **Domain**: cointquest.org (purchased and ready to connect)
+- **Production URL**: https://coinquest.pages.dev ✅ LIVE
+- **Cloudflare Project**: coinquest 
 - **Database**: Cloudflare D1 (ID: a2c7879c-768e-4802-829b-1087389b0768)
-- **Status**: ⚡ Ready for production deployment
+- **Status**: 🎉 LIVE AND ACCEPTING PAYMENTS
+
+### 💳 Payment Integration Status
+- **Stripe Account**: ✅ Live and verified
+- **Product**: ✅ Coin Quest RPG Premium ($4.99/month)
+- **Price ID**: price_1RzjdBR5h825yDltIusGFmm9
+- **Environment Variables**: ⚠️ Need to add to Cloudflare Pages
+- **Webhook**: ✅ Configured (https://coinquest.pages.dev/api/stripe-webhook)
+- **Payment Status**: 🔧 Ready for environment variable setup
 
 ### 🔧 Development URLs
 - **Sandbox Dev**: https://3000-iyzxp45g1y4nga25l9v59-6532622b.e2b.dev
-- **API Health**: /api/subscription/plans
+- **API Endpoints**: /api/subscription/plans, /api/create-checkout-session
 
 ## 🔄 User Journey & Experience
 
