@@ -630,7 +630,7 @@ class CoinQuestRPG {
       const response = await this.makeAuthenticatedRequest('/api/create-checkout-session', {
         method: 'POST',
         data: {
-          price_id: 'price_REPLACE_WITH_STRIPE_PRICE_ID', // Will be updated with real Stripe price ID
+          price_id: 'price_1RzjdBR5h825yDltIusGFmm9', // Coin Quest RPG Premium - $4.99/month
           billing_cycle: billingCycle
         }
       });

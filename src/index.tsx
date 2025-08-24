@@ -1798,7 +1798,7 @@ app.post('/api/create-checkout-session', authMiddleware, async (c) => {
       mode: 'subscription',
       payment_method_types: ['card'],
       line_items: [{
-        price: price_id || 'price_REPLACE_WITH_STRIPE_PRICE_ID', // Will be updated with real Stripe price ID
+        price: price_id || 'price_1RzjdBR5h825yDltIusGFmm9', // Coin Quest RPG Premium - $4.99/month
         quantity: 1,
       }],
       success_url: `https://coinquest.pages.dev/success?session_id={CHECKOUT_SESSION_ID}`,
