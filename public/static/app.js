@@ -193,11 +193,13 @@ class CoinQuestRPG {
   async loadCharacterRewards() {
     try {
       const response = await this.makeAuthenticatedRequest(`/api/character-rewards/${this.currentUser.id}`);
-      this.characterRewards = response.data;
+      this.characterRewards = response.data || [];
       this.updateCharacterDisplay();
       this.updateRewardsDisplay();
     } catch (error) {
       console.error('Error loading character rewards:', error);
+      this.characterRewards = [];
+      this.updateRewardsDisplay(); // Still update with empty data
     }
   }
 
@@ -1304,12 +1306,29 @@ class CoinQuestRPG {
   }
 
   updateRewardsDisplay() {
-    // Update stats
-    document.getElementById('totalRewards').textContent = this.rewardStats.total;
-    document.getElementById('unlockedRewards').textContent = this.rewardStats.unlocked;
-    document.getElementById('equippedRewards').textContent = this.rewardStats.equipped;
-    document.getElementById('availableRewards').textContent = this.rewardStats.available;
-    document.getElementById('lockedRewards').textContent = this.rewardStats.locked;
+    // Initialize rewardStats if undefined
+    if (!this.rewardStats) {
+      this.rewardStats = {
+        total: 0,
+        unlocked: 0,
+        equipped: 0,
+        available: 0,
+        locked: 0
+      };
+    }
+    
+    // Update stats with null checks
+    const totalEl = document.getElementById('totalRewards');
+    const unlockedEl = document.getElementById('unlockedRewards');
+    const equippedEl = document.getElementById('equippedRewards');
+    const availableEl = document.getElementById('availableRewards');
+    const lockedEl = document.getElementById('lockedRewards');
+    
+    if (totalEl) totalEl.textContent = this.rewardStats.total || 0;
+    if (unlockedEl) unlockedEl.textContent = this.rewardStats.unlocked || 0;
+    if (equippedEl) equippedEl.textContent = this.rewardStats.equipped || 0;
+    if (availableEl) availableEl.textContent = this.rewardStats.available || 0;
+    if (lockedEl) lockedEl.textContent = this.rewardStats.locked || 0;
 
     // Update progress display
     document.getElementById('progressLevel').textContent = `Level ${this.currentUser.current_level}`;
